@@ -1,1047 +1,694 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!
-})
-
-interface Question {
-  question: string
-  category?: string
-}
-
-interface PageContent {
-  title: string
-  slug: string
-  questions: Question[]
-  metaDescription: string
-  wordCount: number
-  htmlContent: string
-  faqSchema: any
-  serviceSchema: any
-  localBusinessSchema: any
-  organizationSchema: any
-}
-
-interface GeneratedContent {
-  mainCityPage: PageContent
-  topicPages: {
-    residential: PageContent
-    commercial: PageContent
-    construction: PageContent
-    roofing: PageContent
+export interface GeneratedContent {
+  mainCityPage: {
+    title: string
+    slug: string
+    htmlContent: string
+    metaDescription: string
   }
-  neighborhoodPages: PageContent[]
-  totalPages: number
-  totalWordCount: number
+  neighborhoodPages?: Array<{
+    title: string
+    slug: string
+    htmlContent: string
+    metaDescription: string
+  }>
 }
 
-export async function generateContent(
-  hubAndSpoke: any,
-  cityData: any,
-  localData: any
-): Promise<GeneratedContent> {
-  console.log(`🎨 Starting content generation...`)
+interface NeighborhoodData {
+  [key: string]: string[]
+}
 
-  const mainPage = await generateMainCityPage(
-    hubAndSpoke.mainCityPage,
-    cityData,
-    localData
-  )
+const NEIGHBORHOOD_MAP: NeighborhoodData = {
+  'Phoenix': ['Scottsdale', 'Tempe', 'Mesa', 'Chandler', 'Glendale', 'Gilbert', 'Peoria', 'Surprise'],
+  'Dallas': ['Plano', 'Irving', 'Arlington', 'Fort Worth', 'Frisco', 'McKinney', 'Garland', 'Richardson'],
+  'Houston': ['Sugar Land', 'Pearland', 'The Woodlands', 'Katy', 'Pasadena', 'League City', 'Cypress', 'Spring'],
+  'Los Angeles': ['Santa Monica', 'Pasadena', 'Long Beach', 'Glendale', 'Burbank', 'Torrance', 'Inglewood', 'El Monte'],
+  'Chicago': ['Naperville', 'Evanston', 'Oak Park', 'Schaumburg', 'Palatine', 'Skokie', 'Des Plaines', 'Arlington Heights'],
+  'San Antonio': ['New Braunfels', 'Boerne', 'Schertz', 'Seguin', 'Universal City', 'Leon Valley', 'Helotes', 'Converse']
+}
 
-  const residentialPage = await generateTopicPage(
-    hubAndSpoke.topicPages.residential,
-    cityData,
-    localData,
-    'residential'
-  )
+export class ContentGenerator {
+  private anthropic: Anthropic
 
-  const commercialPage = await generateTopicPage(
-    hubAndSpoke.topicPages.commercial,
-    cityData,
-    localData,
-    'commercial'
-  )
-
-  const constructionPage = await generateTopicPage(
-    hubAndSpoke.topicPages.construction,
-    cityData,
-    localData,
-    'construction'
-  )
-
-  const roofingPage = await generateTopicPage(
-    hubAndSpoke.topicPages.roofing,
-    cityData,
-    localData,
-    'roofing'
-  )
-
-  const neighborhoodPages: PageContent[] = []
-  for (const neighborhoodPage of hubAndSpoke.neighborhoodPages) {
-    const page = await generateNeighborhoodPage(
-      neighborhoodPage,
-      cityData,
-      localData
-    )
-    neighborhoodPages.push(page)
+  constructor(apiKey: string) {
+    this.anthropic = new Anthropic({ apiKey })
   }
 
-  const totalWordCount = 
-    mainPage.wordCount +
-    residentialPage.wordCount +
-    commercialPage.wordCount +
-    constructionPage.wordCount +
-    roofingPage.wordCount +
-    neighborhoodPages.reduce((sum, page) => sum + page.wordCount, 0)
-
-  console.log(`\n📊 Content Generation Summary:`)
-  console.log(`   📄 Total pages: ${1 + 4 + neighborhoodPages.length}`)
-  console.log(`   📝 Total words: ${totalWordCount.toLocaleString()}`)
-
-  return {
-    mainCityPage: mainPage,
-    topicPages: {
-      residential: residentialPage,
-      commercial: commercialPage,
-      construction: constructionPage,
-      roofing: roofingPage
-    },
-    neighborhoodPages,
-    totalPages: 1 + 4 + neighborhoodPages.length,
-    totalWordCount
-  }
-}
-
-async function generateMainCityPage(
-  pageData: any,
-  cityData: any,
-  localData: any
-): Promise<PageContent> {
-  console.log(`📄 Generating: ${pageData.title}`)
-
-  const answers = await generateAnswersWithEnhancements(
-    pageData.questions,
-    cityData,
-    localData,
-    'main'
-  )
-
-  const htmlContent = buildMainPageHTML(
-    pageData.title,
-    answers,
-    cityData,
-    localData
-  )
-
-  const faqSchema = buildFAQSchema(pageData.questions, answers)
-  const serviceSchema = buildServiceSchema(cityData)
-  const localBusinessSchema = buildLocalBusinessSchema(cityData)
-  const organizationSchema = buildOrganizationSchema()
-
-  const wordCount = answers.reduce((sum, answer) => sum + countWords(answer.answer), 0)
-
-  return {
-    title: pageData.title,
-    slug: pageData.slug,
-    questions: pageData.questions,
-    metaDescription: `${cityData.city} dumpster rental $295+. Same-day delivery. 4.9★ (1200+ reviews). Call (866) 858-3867 for free quote.`,
-    wordCount,
-    htmlContent,
-    faqSchema,
-    serviceSchema,
-    localBusinessSchema,
-    organizationSchema
-  }
-}
-
-async function generateTopicPage(
-  pageData: any,
-  cityData: any,
-  localData: any,
-  topic: string
-): Promise<PageContent> {
-  console.log(`📄 Generating: ${pageData.title}`)
-
-  const answers = await generateAnswersWithEnhancements(
-    pageData.questions,
-    cityData,
-    localData,
-    topic
-  )
-
-  const htmlContent = buildTopicPageHTML(
-    pageData.title,
-    answers,
-    cityData,
-    localData,
-    topic
-  )
-
-  const faqSchema = buildFAQSchema(pageData.questions, answers)
-  const serviceSchema = buildServiceSchema(cityData, topic)
-  const localBusinessSchema = buildLocalBusinessSchema(cityData)
-  const organizationSchema = buildOrganizationSchema()
-
-  const wordCount = answers.reduce((sum, answer) => sum + countWords(answer.answer), 0)
-
-  const metaDescriptions: { [key: string]: string } = {
-    residential: `${cityData.city} residential dumpster rental. 4.9★ rated. $295+. Call (866) 858-3867 for same-day delivery.`,
-    commercial: `${cityData.city} commercial dumpster rental. Licensed & insured. 4.9★. Call (866) 858-3867 today.`,
-    construction: `${cityData.city} construction dumpster rental. Heavy-duty containers. 4.9★. Call (866) 858-3867.`,
-    roofing: `${cityData.city} roofing dumpster rental. Shingle disposal experts. 4.9★. Call (866) 858-3867.`
+  private getNeighborhoods(city: string): string[] {
+    return NEIGHBORHOOD_MAP[city] || ['Downtown', 'North Side', 'South Side', 'East End', 'West End', 'Midtown', 'Uptown', 'Suburbs']
   }
 
-  return {
-    title: pageData.title,
-    slug: pageData.slug,
-    questions: pageData.questions,
-    metaDescription: metaDescriptions[topic],
-    wordCount,
-    htmlContent,
-    faqSchema,
-    serviceSchema,
-    localBusinessSchema,
-    organizationSchema
-  }
-}
-
-async function generateNeighborhoodPage(
-  pageData: any,
-  cityData: any,
-  localData: any
-): Promise<PageContent> {
-  console.log(`📄 Generating: ${pageData.title}`)
-
-  const answers = await generateAnswersWithEnhancements(
-    pageData.questions,
-    cityData,
-    localData,
-    'neighborhood'
-  )
-
-  const htmlContent = buildNeighborhoodPageHTML(
-    pageData.title,
-    answers,
-    cityData,
-    localData,
-    pageData.neighborhood
-  )
-
-  const faqSchema = buildFAQSchema(pageData.questions, answers)
-  const serviceSchema = buildServiceSchema(cityData)
-  const localBusinessSchema = buildLocalBusinessSchema(cityData)
-  const organizationSchema = buildOrganizationSchema()
-
-  const wordCount = answers.reduce((sum, answer) => sum + countWords(answer.answer), 0)
-
-  return {
-    title: pageData.title,
-    slug: pageData.slug,
-    questions: pageData.questions,
-    metaDescription: `Dumpster rental in ${pageData.neighborhood}, ${cityData.city}. Same-day delivery. 4.9★. Call (866) 858-3867.`,
-    wordCount,
-    htmlContent,
-    faqSchema,
-    serviceSchema,
-    localBusinessSchema,
-    organizationSchema
-  }
-}
-
-async function generateAnswersWithEnhancements(
-  questions: Question[],
-  cityData: any,
-  localData: any,
-  pageType: string
-): Promise<Array<{ 
-    question: string
-    answer: string
-    realResult?: string
-    takeaway?: string
-    category?: string 
-  }>> {
-  const batchSize = 5
-  const allAnswers: Array<{ 
-    question: string
-    answer: string
-    realResult?: string
-    takeaway?: string
-    category?: string 
-  }> = []
-
-  console.log(`📝 Generating ${questions.length} enhanced answers...`)
-
-  for (let i = 0; i < questions.length; i += batchSize) {
-    const batch = questions.slice(i, i + batchSize)
-    const isFirstBatch = i === 0
-    
-    const prompt = buildEnhancedPrompt(batch, cityData, localData, pageType, isFirstBatch)
-    
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 16000,
-      messages: [{
-        role: 'user',
-        content: prompt
-      }]
-    })
-
-    const content = message.content[0].type === 'text' ? message.content[0].text : ''
-    const answers = parseEnhancedAnswers(content, batch, isFirstBatch)
-    
-    allAnswers.push(...answers)
-    console.log(`   ✅ Generated ${allAnswers.length}/${questions.length} answers`)
-  }
-
-  return allAnswers
-}
-
-function buildEnhancedPrompt(
-  questions: Question[],
-  cityData: any,
-  localData: any,
-  pageType: string,
-  isFirstBatch: boolean
-): string {
-  return `You are writing ELITE SEO content for Ultimate Dumpsters, targeting 90+/100 SEO scores and first-page rankings in both Google and AI search engines (ChatGPT, Claude, Perplexity).
-
-CITY CONTEXT:
-- City: ${cityData.city}, ${cityData.state_code}
-- County: ${cityData.county}
-- Population: ${cityData.population?.toLocaleString()}
-- Main Streets: ${localData.main_streets?.join(', ') || 'Main Street'}
-- Landmarks: ${localData.landmarks?.join(', ') || 'Downtown'}
-- Permit Cost: $45 from ${cityData.city} Code Enforcement
-
-COMPANY CREDENTIALS (Ultimate Dumpsters):
-- 15+ years in business
-- 100,000+ customers served nationwide
-- 4.9 star rating (1,200+ verified reviews)
-- Family owned and operated
-- Licensed and insured in all 50 states
-- Phone: (866) 858-3867
-
-CRITICAL INSTRUCTIONS FOR 90+/100 SEO & GEO SCORES:
-
-1. **FEATURED SNIPPET OPTIMIZATION**
-   - First paragraph: Direct, complete answer (40-60 words)
-   - Start with the exact question being answered
-   - Include specific numbers, prices, timeframes
-   - Format for voice search compatibility
-
-2. **AI SEARCH ENGINE OPTIMIZATION (GEO)**
-   - Write conversationally as if talking to a friend
-   - Use "you'll need", "here's what", "the best approach is" phrasing
-   - Include practical examples from ${cityData.city}
-   - Answer follow-up questions naturally within content
-   - Provide step-by-step guidance where applicable
-
-3. **UNIQUENESS & LOCAL SPECIFICITY**
-   - Every answer MUST include 3+ ${cityData.city}-specific details
-   - Reference actual streets: "${localData.main_streets?.[0] || 'Main Street'}"
-   - Mention local landmarks: "${localData.landmarks?.[0] || 'downtown'}"
-   - Include local permit process ($45 from ${cityData.city} Code Enforcement)
-   - Reference neighborhood characteristics (narrow streets, HOAs, parking)
-
-4. **ANSWER STRUCTURE** (300-600 words each):
-   - **Paragraph 1** (Featured Snippet): Direct answer with key facts (40-60 words)
-   - **Paragraph 2-3**: Detailed explanation with ${cityData.city} examples
-   - **Paragraph 4**: Practical tips and local insights
-   - **Paragraph 5**: Common scenarios in ${cityData.city}
-   - Use short paragraphs (2-4 sentences max) for scannability
-
-5. **E-E-A-T SIGNALS**:
-   - Reference 15+ years of experience naturally
-   - Mention "we've helped 100,000+ customers"
-   - Include specific ${cityData.city} project examples
-   - Show expertise through detailed technical knowledge
-   - Build trust with transparent pricing
-
-6. **PRICING TRANSPARENCY** (Include naturally in answers):
-   - 10-yard: $295-$395
-   - 20-yard: $395-$495 (most popular for home projects)
-   - 30-yard: $495-$595
-   - 40-yard: $595-$695
-   - Note: 7-day rental included, delivery + pickup + disposal
-
-7. **EXTERNAL AUTHORITY LINKS** (1-2 per answer where relevant):
-   - ${cityData.city} government: permits, codes, regulations
-   - EPA guidelines: waste disposal, environmental standards
-   - State environmental agencies
-   - Format: [Link: https://example.gov]
-
-8. **CONVERSION OPTIMIZATION**:
-   - Naturally mention calling (866) 858-3867 for quotes
-   - Reference same-day delivery when you call before noon
-   - Mention free site assessments
-   - Include "we can help you determine the right size" type language
-
-${isFirstBatch ? `9. **FIRST ANSWER ONLY - ADD REAL RESULT & TAKEAWAY**:
-   After the first answer, provide:
-   
-   REAL RESULT:
-   [Write a specific, believable success story about helping a ${cityData.city} customer. Include actual project type, street/area mention if possible, specific problem solved, and positive outcome. Make it feel authentic and detailed. 2-3 sentences.]
-   
-   TAKEAWAY:
-   [Write one actionable piece of advice specific to ${cityData.city} customers. Be direct and helpful. Make it memorable. 1 sentence.]
-` : ''}
-
-QUESTIONS TO ANSWER:
-${questions.map((q, i) => `${i + 1}. ${q.question}`).join('\n')}
-
-FORMAT YOUR RESPONSE EXACTLY LIKE THIS:
-
-ANSWER 1:
-[Your detailed 300-600 word answer optimized for featured snippets and AI search]
-[Link: https://example.gov] (if relevant)
-
-${isFirstBatch ? `REAL RESULT 1:
-[Your specific ${cityData.city} success story - 2-3 sentences]
-
-TAKEAWAY 1:
-[Your actionable ${cityData.city}-specific advice - 1 sentence]
-
-` : ''}ANSWER 2:
-[Your detailed 300-600 word answer]
-[Link: https://example.gov] (if relevant)
-
-Continue for all ${questions.length} questions.
-
-Remember: We're targeting 90+/100 SEO scores and top rankings in both traditional search AND AI search engines. Every word must be useful, unique, and optimized. Quality over everything.`
-}
-
-function parseEnhancedAnswers(
-  content: string,
-  questions: Question[],
-  isFirstBatch: boolean
-): Array<{ 
-    question: string
-    answer: string
-    realResult?: string
-    takeaway?: string
-    category?: string 
-  }> {
-  const answers: Array<{ 
-    question: string
-    answer: string
-    realResult?: string
-    takeaway?: string
-    category?: string 
-  }> = []
-
-  const sections = content.split(/ANSWER \d+:/i).filter(s => s.trim())
-
-  for (let i = 0; i < questions.length && i < sections.length; i++) {
-    const section = sections[i]
-    
-    const realResultMatch = section.match(/REAL RESULT \d+:(.*?)(?=TAKEAWAY|$)/is)
-    const takeawayMatch = section.match(/TAKEAWAY \d+:(.*?)(?=ANSWER|$)/is)
-    
-    let answer = section
-    if (realResultMatch) {
-      answer = section.substring(0, section.indexOf('REAL RESULT'))
-    }
-    
-    answer = answer.trim()
-    
-    const result: any = {
-      question: questions[i].question,
-      answer: answer,
-      category: questions[i].category
-    }
-
-    if (isFirstBatch && i === 0) {
-      if (realResultMatch) {
-        result.realResult = realResultMatch[1].trim()
-      }
-      if (takeawayMatch) {
-        result.takeaway = takeawayMatch[1].trim()
-      }
-    }
-
-    answers.push(result)
-  }
-
-  return answers
-}
-
-function buildMainPageHTML(
-  title: string,
-  answers: Array<{ question: string; answer: string; realResult?: string; takeaway?: string }>,
-  cityData: any,
-  localData: any
-): string {
-  const city = cityData.city
-  const state = cityData.state_code
-
-  return `<article class="dumpster-rental-content">
-  <header class="page-header">
-    <h1>${title}</h1>
-    <div class="header-meta">
-      <span class="rating">⭐ 4.9 Rating (1,200+ Reviews)</span>
-      <span class="cta-phone">📞 <a href="tel:8668583867">(866) 858-3867</a></span>
-    </div>
-  </header>
-  
-  <section class="intro-section">
-    <p>Welcome to your complete guide for dumpster rentals in ${city}, ${state}. Whether you're a homeowner tackling a renovation, a contractor managing a construction site, or a business owner handling commercial waste, we've answered every question you might have about renting a dumpster in ${city}.</p>
-  </section>
-
-  ${buildHeroCTA(city)}
-  
-  ${buildQuickAnswerBox(city, state)}
-  
-  ${buildPricingCards(city)}
-  
-  ${buildTableOfContents(answers)}
-  
-  <section class="faq-content">
-    ${buildSectionizedFAQsWithCTAs(answers, city, state)}
-  </section>
-  
-  ${buildServiceComparisonTable(city)}
-  
-  ${buildCTABanner(city, 'middle')}
-  
-  ${buildCostFactorsTable(city)}
-  
-  ${buildPreparationChecklist(city)}
-  
-  ${buildQuickSummary(city)}
-  
-  ${buildFinalCTA(city)}
-</article>`
-}
-
-function buildTopicPageHTML(
-  title: string,
-  answers: Array<{ question: string; answer: string; realResult?: string; takeaway?: string }>,
-  cityData: any,
-  localData: any,
-  topic: string
-): string {
-  const city = cityData.city
-  const state = cityData.state_code
-
-  return `<article class="dumpster-rental-content">
-  <header class="page-header">
-    <h1>${title}</h1>
-    <div class="header-meta">
-      <span class="rating">⭐ 4.9 Rating</span>
-      <span class="cta-phone">📞 <a href="tel:8668583867">(866) 858-3867</a></span>
-    </div>
-  </header>
-  
-  <section class="intro-section">
-    <p>Your complete guide for ${topic} dumpster rentals in ${city}, ${state}. Expert advice, transparent pricing, and same-day delivery available.</p>
-  </section>
-
-  ${buildHeroCTA(city)}
-  
-  ${buildTableOfContents(answers)}
-  
-  <section class="faq-content">
-    ${buildSectionizedFAQsWithCTAs(answers, city, state)}
-  </section>
-  
-  ${buildFinalCTA(city)}
-</article>`
-}
-
-function buildNeighborhoodPageHTML(
-  title: string,
-  answers: Array<{ question: string; answer: string; realResult?: string; takeaway?: string }>,
-  cityData: any,
-  localData: any,
-  neighborhood: string
-): string {
-  const city = cityData.city
-
-  return `<article class="dumpster-rental-content">
-  <header class="page-header">
-    <h1>${title}</h1>
-    <div class="header-meta">
-      <span class="rating">⭐ 4.9 Rating</span>
-      <span class="cta-phone">📞 <a href="tel:8668583867">(866) 858-3867</a></span>
-    </div>
-  </header>
-  
-  <section class="intro-section">
-    <p>Professional dumpster rental service in ${neighborhood}, ${city}. We understand the unique needs of this neighborhood and provide reliable, affordable solutions.</p>
-  </section>
-
-  ${buildHeroCTA(city)}
-  
-  ${buildTableOfContents(answers)}
-  
-  <section class="faq-content">
-    ${buildSectionizedFAQsWithCTAs(answers, city, city)}
-  </section>
-  
-  ${buildFinalCTA(city)}
-</article>`
-}
-
-function buildHeroCTA(city: string): string {
-  return `<div class="hero-cta">
-  <div class="hero-cta-content">
-    <h2>Get Your Free Quote Today</h2>
-    <p>Same-day delivery available in ${city} when you call before noon</p>
-    <div class="cta-buttons">
-      <a href="tel:8668583867" class="cta-button cta-primary">
-        <span class="cta-icon">📞</span>
-        Call (866) 858-3867
-      </a>
-      <a href="tel:8668583867" class="cta-button cta-secondary">
-        Get Free Quote
-      </a>
-    </div>
-    <p class="cta-assurance">✓ No Credit Card Required  ✓ Free Site Assessment  ✓ Same-Day Delivery</p>
-  </div>
-</div>`
-}
-
-function buildCTABanner(city: string, position: string): string {
-  return `<aside class="cta-banner cta-${position}">
-  <div class="cta-banner-content">
-    <div class="cta-banner-text">
-      <h3>Need a Dumpster in ${city}?</h3>
-      <p>Get your free quote in under 2 minutes. Same-day delivery available.</p>
-    </div>
-    <a href="tel:8668583867" class="cta-button cta-primary">
-      📞 Call (866) 858-3867
-    </a>
-  </div>
-</aside>`
-}
-
-function buildInlineCTA(index: number, city: string): string {
-  const ctas = [
-    {
-      title: "Ready to Order Your Dumpster?",
-      text: `Call us at (866) 858-3867 for same-day delivery in ${city}.`,
-      button: "Get Free Quote"
-    },
-    {
-      title: "Have Questions About Sizing?",
-      text: "Our experts can help you choose the perfect dumpster for your project.",
-      button: "Call (866) 858-3867"
-    },
-    {
-      title: "Need Fast Delivery?",
-      text: `Same-day dumpster delivery available in ${city} - call before noon.`,
-      button: "Check Availability"
-    }
-  ]
-  
-  const cta = ctas[index % ctas.length]
-  
-  return `<aside class="inline-cta">
-  <div class="inline-cta-content">
-    <h4>${cta.title}</h4>
-    <p>${cta.text}</p>
-    <a href="tel:8668583867" class="cta-button cta-secondary">${cta.button}</a>
-  </div>
-</aside>`
-}
-
-function buildQuickAnswerBox(city: string, state: string): string {
-  return `<div class="quick-answer-box">
-  <h3>Quick Answer</h3>
-  <p><strong>For most ${city} home renovations, a 20-yard dumpster ($395-$495) works best.</strong> Need street placement? Budget $45 for ${city} city permit. We deliver same-day when you call before noon at <a href="tel:8668583867">(866) 858-3867</a>.</p>
-  <div class="quick-facts">
-    <span>⭐ 4.9/5 Rating</span>
-    <span>🏆 15+ Years</span>
-    <span>✅ Licensed & Insured</span>
-  </div>
-</div>`
-}
-
-function buildPricingCards(city: string): string {
-  return `<section class="pricing-cards">
-  <h2>Dumpster Rental Pricing in ${city}</h2>
-  <div class="cards-grid">
-    <div class="pricing-card">
-      <div class="card-header">
-        <h3>10 Yard</h3>
-        <div class="price">$295-$395</div>
-      </div>
-      <div class="card-body">
-        <p class="card-desc">Perfect for small projects</p>
-        <ul class="card-features">
-          <li>✓ Bathroom remodels</li>
-          <li>✓ Small cleanouts</li>
-          <li>✓ 12' L × 8' W × 4' H</li>
-        </ul>
-      </div>
-      <a href="tel:8668583867" class="card-cta">Get Quote</a>
-    </div>
-    
-    <div class="pricing-card featured">
-      <div class="badge">Most Popular</div>
-      <div class="card-header">
-        <h3>20 Yard</h3>
-        <div class="price">$395-$495</div>
-      </div>
-      <div class="card-body">
-        <p class="card-desc">Ideal for home renovations</p>
-        <ul class="card-features">
-          <li>✓ Kitchen remodels</li>
-          <li>✓ Garage cleanouts</li>
-          <li>✓ 22' L × 8' W × 4' H</li>
-        </ul>
-      </div>
-      <a href="tel:8668583867" class="card-cta">Get Quote</a>
-    </div>
-    
-    <div class="pricing-card">
-      <div class="card-header">
-        <h3>30 Yard</h3>
-        <div class="price">$495-$595</div>
-      </div>
-      <div class="card-body">
-        <p class="card-desc">Large renovation projects</p>
-        <ul class="card-features">
-          <li>✓ Whole house cleanouts</li>
-          <li>✓ Large renovations</li>
-          <li>✓ 22' L × 8' W × 6' H</li>
-        </ul>
-      </div>
-      <a href="tel:8668583867" class="card-cta">Get Quote</a>
-    </div>
-    
-    <div class="pricing-card">
-      <div class="card-header">
-        <h3>40 Yard</h3>
-        <div class="price">$595-$695</div>
-      </div>
-      <div class="card-body">
-        <p class="card-desc">Commercial & construction</p>
-        <ul class="card-features">
-          <li>✓ New construction</li>
-          <li>✓ Commercial projects</li>
-          <li>✓ 22' L × 8' W × 8' H</li>
-        </ul>
-      </div>
-      <a href="tel:8668583867" class="card-cta">Get Quote</a>
-    </div>
-  </div>
-  <p class="pricing-note">All prices include 7-day rental, delivery, pickup, and disposal. Street permits ($45) billed separately.</p>
-</section>`
-}
-
-function buildTableOfContents(answers: Array<{ question: string; answer: string }>): string {
-  return `<nav class="table-of-contents">
-  <h2>Quick Navigation</h2>
-  <ul>
-    ${answers.map((item, index) => `<li><a href="#question-${index + 1}">${item.question}</a></li>`).join('\n    ')}
-  </ul>
-</nav>`
-}
-
-function buildSectionizedFAQsWithCTAs(
-  answers: Array<{ question: string; answer: string; realResult?: string; takeaway?: string }>,
-  city: string,
-  state: string
-): string {
-  let html = `<div class="faq-section">
-  <h2 class="section-header">Understanding Dumpster Rental in ${city}</h2>\n\n`
-
-  answers.forEach((item, index) => {
-    html += `  <div class="faq-item" id="question-${index + 1}">
-    <h3>${item.question}</h3>
-    ${formatAnswerWithLinks(item.answer)}
-    ${item.realResult ? buildRealResultsBox(item.realResult) : ''}
-    ${item.takeaway ? buildTakeawayBox(item.takeaway) : ''}
-  </div>\n\n`
-
-    // Add CTA after every 4 FAQs
-    if ((index + 1) % 4 === 0 && index < answers.length - 1) {
-      html += buildInlineCTA(Math.floor(index / 4), city) + '\n\n'
-    }
-  })
-
-  html += `</div>\n`
-  return html
-}
-
-function formatAnswerWithLinks(answer: string): string {
-  let formatted = answer.replace(/\[Link: (https?:\/\/[^\]]+)\]/g, (match, url) => {
-    const domain = url.match(/https?:\/\/([^\/]+)/)?.[1] || 'source'
-    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="authority-link">${domain}</a>`
-  })
-  
-  const paragraphs = formatted.split('\n\n').filter(p => p.trim())
-  return paragraphs.map(p => `<p>${p.trim()}</p>`).join('\n    ')
-}
-
-function buildRealResultsBox(realResult: string): string {
-  return `<aside class="real-results-box">
-  <h4>💼 Real Results</h4>
-  <p>${realResult}</p>
-</aside>`
-}
-
-function buildTakeawayBox(takeaway: string): string {
-  return `<aside class="takeaway-box">
-  <h4>💡 Key Takeaway</h4>
-  <p>${takeaway}</p>
-</aside>`
-}
-
-function buildServiceComparisonTable(city: string): string {
-  return `<section class="comparison-section">
-  <h2>Service Comparison for ${city}</h2>
-  <div class="comparison-table-wrapper">
-    <table class="comparison-table">
-      <thead>
-        <tr>
-          <th>Feature</th>
-          <th>Standard</th>
-          <th>Premium</th>
-          <th>Best For</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><strong>Pricing</strong></td>
-          <td>Most affordable</td>
-          <td>Premium service</td>
-          <td>Standard for budget; Premium for urgent needs</td>
-        </tr>
-        <tr>
-          <td><strong>Delivery</strong></td>
-          <td>3-5 business days</td>
-          <td>Next-day/same-day</td>
-          <td>Premium for time-sensitive ${city} projects</td>
-        </tr>
-        <tr>
-          <td><strong>Support</strong></td>
-          <td>Business hours</td>
-          <td>24/7 dedicated</td>
-          <td>Depends on project complexity</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</section>`
-}
-
-function buildCostFactorsTable(city: string): string {
-  return `<section class="cost-factors-section">
-  <h2>Cost Factors in ${city}</h2>
-  <div class="factors-grid">
-    <div class="factor-card">
-      <h3>📏 Project Scope</h3>
-      <p>Size and complexity of your ${city} project affects pricing. Larger projects require bigger dumpsters.</p>
-    </div>
-    <div class="factor-card">
-      <h3>⏱️ Timeline</h3>
-      <p>Standard vs. expedited delivery. Same-day service available in ${city} for urgent needs.</p>
-    </div>
-    <div class="factor-card">
-      <h3>📍 Location</h3>
-      <p>Site accessibility and ${city}-specific requirements may affect delivery logistics.</p>
-    </div>
-    <div class="factor-card">
-      <h3>⭐ Service Level</h3>
-      <p>Choose standard or premium tiers based on your ${city} project needs.</p>
-    </div>
-  </div>
-</section>`
-}
-
-function buildPreparationChecklist(city: string): string {
-  return `<section class="checklist-section">
-  <h2>Preparation Checklist for ${city}</h2>
-  <div class="checklist-box">
-    <ul>
-      <li>✓ Gather necessary permits ($45 from ${city} Code Enforcement)</li>
-      <li>✓ Clear delivery area and ensure easy access</li>
-      <li>✓ Document site conditions with photos</li>
-      <li>✓ Communicate special requirements to your coordinator</li>
-      <li>✓ Confirm delivery date and access instructions</li>
-    </ul>
-  </div>
-</section>`
-}
-
-function buildQuickSummary(city: string): string {
-  return `<section class="quick-summary-box">
-  <h3>Quick Summary</h3>
-  <p><strong>5 key things to remember about ${city} dumpster rental:</strong></p>
-  <ul>
-    <li>Ultimate Dumpsters provides specialized service tailored to ${city} requirements</li>
-    <li>15+ years of experience ensures efficient, transparent service delivery</li>
-    <li>Customer-first approach with real-time communication and flexible options</li>
-    <li>Clear pricing, professional handling for every ${city} project type</li>
-    <li>From quote to completion, we handle all details so you can focus on your project</li>
-  </ul>
-</section>`
-}
-
-function buildFinalCTA(city: string): string {
-  return `<section class="final-cta">
-  <div class="final-cta-content">
-    <h2>Ready to Rent a Dumpster in ${city}?</h2>
-    <p>Get your free quote today. Transparent pricing, reliable service, and same-day delivery available.</p>
-    <div class="final-cta-features">
-      <span>⭐ 4.9/5 Rating (1,200+ Reviews)</span>
-      <span>🏆 15+ Years in Business</span>
-      <span>✅ 100,000+ Satisfied Customers</span>
-    </div>
-    <a href="tel:8668583867" class="cta-button cta-large">
-      📞 Call (866) 858-3867 Now
-    </a>
-    <p class="cta-guarantee">Free quote in under 2 minutes • No credit card required • Same-day delivery available</p>
-  </div>
-</section>`
-}
-
-function buildFAQSchema(
-  questions: Question[],
-  answers: Array<{ question: string; answer: string }>
-): any {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: questions.map((q, index) => ({
-      '@type': 'Question',
-      name: q.question,
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: answers[index]?.answer.replace(/\[Link:.*?\]/g, '').trim() || ''
-      }
-    }))
-  }
-}
-
-function buildServiceSchema(cityData: any, serviceType: string = 'dumpster rental'): any {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'Service',
-    serviceType: `${serviceType} service`,
-    provider: {
-      '@type': 'LocalBusiness',
-      name: 'Ultimate Dumpsters',
-      telephone: '(866) 858-3867',
-      priceRange: '$295-$695'
-    },
-    areaServed: {
-      '@type': 'City',
-      name: cityData.city,
-      '@id': `https://www.wikidata.org/wiki/${cityData.wikidata_id || ''}`
-    },
-    hasOfferCatalog: {
-      '@type': 'OfferCatalog',
-      name: 'Dumpster Rental Services',
-      itemListElement: [
+  private generateSchema(cityData: any, neighborhoods: string[], faqs: Array<{question: string, answer: string}>) {
+    return {
+      "@context": "https://schema.org",
+      "@graph": [
         {
-          '@type': 'Offer',
-          itemOffered: {
-            '@type': 'Service',
-            name: '10 Yard Dumpster Rental'
+          "@type": "LocalBusiness",
+          "@id": `https://ultimatedumpsters.com/dumpster-rental-${cityData.city.toLowerCase()}-${cityData.state_code.toLowerCase()}#business`,
+          "name": "Ultimate Dumpsters",
+          "image": "https://ultimatedumpsters.com/wp-content/uploads/logo.png",
+          "url": `https://ultimatedumpsters.com/dumpster-rental-${cityData.city.toLowerCase()}-${cityData.state_code.toLowerCase()}`,
+          "telephone": "866-858-3867",
+          "priceRange": "$295-$695",
+          "address": {
+            "@type": "PostalAddress",
+            "addressLocality": cityData.city,
+            "addressRegion": cityData.state_code,
+            "addressCountry": "US"
           },
-          priceSpecification: {
-            '@type': 'PriceSpecification',
-            price: '295-395',
-            priceCurrency: 'USD'
-          }
+          "geo": {
+            "@type": "GeoCoordinates",
+            "latitude": cityData.latitude || 0,
+            "longitude": cityData.longitude || 0
+          },
+          "areaServed": [
+            {
+              "@type": "City",
+              "name": cityData.city
+            },
+            ...neighborhoods.map(n => ({
+              "@type": "City",
+              "name": n
+            }))
+          ],
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": "4.9",
+            "reviewCount": "1247",
+            "bestRating": "5",
+            "worstRating": "1"
+          },
+          "openingHoursSpecification": [
+            {
+              "@type": "OpeningHoursSpecification",
+              "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+              "opens": "08:00",
+              "closes": "20:00"
+            },
+            {
+              "@type": "OpeningHoursSpecification",
+              "dayOfWeek": "Saturday",
+              "opens": "09:00",
+              "closes": "16:00"
+            }
+          ]
         },
         {
-          '@type': 'Offer',
-          itemOffered: {
-            '@type': 'Service',
-            name: '20 Yard Dumpster Rental'
-          },
-          priceSpecification: {
-            '@type': 'PriceSpecification',
-            price: '395-495',
-            priceCurrency: 'USD'
-          }
+          "@type": "FAQPage",
+          "mainEntity": faqs.slice(0, 15).map(qa => ({
+            "@type": "Question",
+            "name": qa.question,
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": qa.answer
+            }
+          }))
         },
         {
-          '@type': 'Offer',
-          itemOffered: {
-            '@type': 'Service',
-            name: '30 Yard Dumpster Rental'
+          "@type": "Service",
+          "serviceType": "Dumpster Rental",
+          "provider": {
+            "@id": `https://ultimatedumpsters.com/dumpster-rental-${cityData.city.toLowerCase()}-${cityData.state_code.toLowerCase()}#business`
           },
-          priceSpecification: {
-            '@type': 'PriceSpecification',
-            price: '495-595',
-            priceCurrency: 'USD'
-          }
-        },
-        {
-          '@type': 'Offer',
-          itemOffered: {
-            '@type': 'Service',
-            name: '40 Yard Dumpster Rental'
-          },
-          priceSpecification: {
-            '@type': 'PriceSpecification',
-            price: '595-695',
-            priceCurrency: 'USD'
+          "areaServed": neighborhoods.map(n => ({
+            "@type": "City",
+            "name": n
+          })),
+          "hasOfferCatalog": {
+            "@type": "OfferCatalog",
+            "name": "Dumpster Sizes",
+            "itemListElement": [
+              {
+                "@type": "Offer",
+                "itemOffered": {
+                  "@type": "Service",
+                  "name": "10 Yard Dumpster Rental"
+                },
+                "price": "295",
+                "priceCurrency": "USD"
+              },
+              {
+                "@type": "Offer",
+                "itemOffered": {
+                  "@type": "Service",
+                  "name": "20 Yard Dumpster Rental"
+                },
+                "price": "395",
+                "priceCurrency": "USD"
+              },
+              {
+                "@type": "Offer",
+                "itemOffered": {
+                  "@type": "Service",
+                  "name": "30 Yard Dumpster Rental"
+                },
+                "price": "495",
+                "priceCurrency": "USD"
+              },
+              {
+                "@type": "Offer",
+                "itemOffered": {
+                  "@type": "Service",
+                  "name": "40 Yard Dumpster Rental"
+                },
+                "price": "695",
+                "priceCurrency": "USD"
+              }
+            ]
           }
         }
       ]
     }
   }
-}
 
-function buildLocalBusinessSchema(cityData: any): any {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'LocalBusiness',
-    '@id': 'https://ultimatedumpsters.com/#organization',
-    name: 'Ultimate Dumpsters',
-    image: 'https://ultimatedumpsters.com/logo.png',
-    telephone: '(866) 858-3867',
-    priceRange: '$295-$695',
-    address: {
-      '@type': 'PostalAddress',
-      addressLocality: cityData.city,
-      addressRegion: cityData.state_code,
-      addressCountry: 'US'
-    },
-    geo: {
-      '@type': 'GeoCoordinates',
-      latitude: cityData.latitude,
-      longitude: cityData.longitude
-    },
-    aggregateRating: {
-      '@type': 'AggregateRating',
-      ratingValue: '4.9',
-      reviewCount: '1200',
-      bestRating: '5',
-      worstRating: '1'
-    },
-    areaServed: {
-      '@type': 'City',
-      name: cityData.city,
-      '@id': `https://www.wikidata.org/wiki/${cityData.wikidata_id || ''}`
-    },
-    openingHours: 'Mo-Su 06:00-22:00'
-  }
-}
+  async generateCityContent(cityData: any): Promise<GeneratedContent> {
+    console.log(`\n🎨 Generating PREMIUM SEO/GEO content for ${cityData.city}, ${cityData.state_code}...`)
 
-function buildOrganizationSchema(): any {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'Organization',
-    name: 'Ultimate Dumpsters',
-    url: 'https://ultimatedumpsters.com',
-    logo: 'https://ultimatedumpsters.com/logo.png',
-    telephone: '(866) 858-3867',
-    foundingDate: '2009',
-    description: 'Professional dumpster rental service serving customers nationwide with 15+ years of experience.',
-    sameAs: [
-      'https://www.facebook.com/ultimatedumpsters',
-      'https://www.linkedin.com/company/ultimatedumpsters'
+    const neighborhoods = this.getNeighborhoods(cityData.city)
+    console.log(`📍 Targeting ${neighborhoods.length} neighborhoods: ${neighborhoods.join(', ')}`)
+
+    // Main hub page questions (25 comprehensive questions across categories)
+    const mainQuestions = [
+      // Residential (7)
+      `What do homeowners in ${cityData.city} need to know about dumpster rental for home renovations?`,
+      `How much does a residential dumpster rental cost in ${cityData.city}, ${cityData.state_code}?`,
+      `What size dumpster do I need for a home cleanout in ${cityData.city}?`,
+      `Can I put a dumpster in my driveway in ${cityData.city}? What are the rules?`,
+      `How long can I keep a rental dumpster at my ${cityData.city} home?`,
+      `What's included in residential dumpster rental pricing in ${cityData.city}?`,
+      `How do I prepare my ${cityData.city} property for dumpster delivery?`,
+      
+      // Commercial (6)
+      `What commercial dumpster services are available in ${cityData.city}?`,
+      `How do businesses in ${cityData.city} handle ongoing waste management?`,
+      `What's the difference between residential and commercial dumpster rental in ${cityData.city}?`,
+      `Do I need a permit for a commercial dumpster in ${cityData.city}?`,
+      `What are the best dumpster sizes for retail businesses in ${cityData.city}?`,
+      `How quickly can businesses get dumpster service in ${cityData.city}?`,
+      
+      // Construction (6)
+      `What do construction companies need to know about dumpster rental in ${cityData.city}?`,
+      `How do I dispose of construction debris in ${cityData.city}, ${cityData.state_code}?`,
+      `What can't I throw in a construction dumpster in ${cityData.city}?`,
+      `How quickly can I get a construction dumpster delivered in ${cityData.city}?`,
+      `What's the typical rental period for construction projects in ${cityData.city}?`,
+      `Do construction companies in ${cityData.city} get volume discounts?`,
+      
+      // Pricing & Logistics (6)
+      `What factors affect dumpster rental pricing in ${cityData.city}?`,
+      `Are there any hidden fees for dumpster rental in ${cityData.city}, ${cityData.state_code}?`,
+      `How does weight limit work for dumpster rentals in ${cityData.city}?`,
+      `What happens if I go over the weight limit in ${cityData.city}?`,
+      `When is the best time to rent a dumpster in ${cityData.city}?`,
+      `How far in advance should I book a dumpster in ${cityData.city}?`
     ]
-  }
-}
 
-function countWords(text: string): number {
-  return text.trim().split(/\s+/).length
+    console.log(`\n📝 Generating main hub page (${mainQuestions.length} questions)...`)
+    
+    const mainAnswers: Array<{question: string, answer: string}> = []
+    
+    for (let i = 0; i < mainQuestions.length; i++) {
+      console.log(`   ${i + 1}/${mainQuestions.length}: ${mainQuestions[i].substring(0, 60)}...`)
+      
+      try {
+        const response = await this.anthropic.messages.create({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1000,
+          messages: [{
+            role: 'user',
+            content: `Answer this question in 200-300 words with specific local details for ${cityData.city}, ${cityData.state_code}:
+
+"${mainQuestions[i]}"
+
+Include:
+- Specific neighborhoods: ${neighborhoods.slice(0, 4).join(', ')}
+- Local pricing ($295-$695 range)
+- Actual permit requirements for ${cityData.city}
+- Container sizes (10-40 yards)
+- Phone number: (866) 858-3867
+- Local landmarks or areas
+
+Write conversationally and be helpful. Include real ${cityData.city} context.`
+          }]
+        })
+
+        const answer = response.content[0].type === 'text' ? response.content[0].text : ''
+        mainAnswers.push({ question: mainQuestions[i], answer })
+        
+      } catch (error) {
+        console.error(`Error generating answer ${i + 1}:`, error)
+        mainAnswers.push({ 
+          question: mainQuestions[i],
+          answer: `Contact us at (866) 858-3867 for information about ${mainQuestions[i]}`
+        })
+      }
+    }
+
+    const mainWords = mainAnswers.reduce((sum, qa) => sum + qa.answer.split(' ').length, 0)
+    console.log(`✅ Main page: ${mainWords.toLocaleString()} words`)
+
+    // Generate schema
+    const schema = this.generateSchema(cityData, neighborhoods, mainAnswers)
+
+    const mainHtmlContent = this.buildMainPage(cityData, neighborhoods, mainAnswers, schema)
+
+    // Generate neighborhood pages
+    console.log(`\n🏘️  Generating ${neighborhoods.length} neighborhood pages...`)
+    const neighborhoodPages = []
+
+    for (const neighborhood of neighborhoods) {
+      const neighborhoodQuestions = [
+        `What's the best dumpster rental service in ${neighborhood}, ${cityData.state_code}?`,
+        `How much does dumpster rental cost in ${neighborhood}?`,
+        `Do I need a permit for a dumpster in ${neighborhood}?`,
+        `What size dumpsters are available in ${neighborhood}?`,
+        `How quickly can I get a dumpster delivered to ${neighborhood}?`,
+        `What areas of ${neighborhood} do you serve?`
+      ]
+
+      const neighborhoodAnswers: Array<{question: string, answer: string}> = []
+
+      for (const question of neighborhoodQuestions) {
+        try {
+          const response = await this.anthropic.messages.create({
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 800,
+            messages: [{
+              role: 'user',
+              content: `Answer this question in 150-200 words for ${neighborhood}, near ${cityData.city}, ${cityData.state_code}:
+
+"${question}"
+
+Include local ${neighborhood} context, pricing, and call (866) 858-3867.`
+            }]
+          })
+
+          const answer = response.content[0].type === 'text' ? response.content[0].text : ''
+          neighborhoodAnswers.push({ question, answer })
+        } catch (error) {
+          neighborhoodAnswers.push({ 
+            question,
+            answer: `Call (866) 858-3867 for ${neighborhood} dumpster rental information.`
+          })
+        }
+      }
+
+      const neighborhoodWords = neighborhoodAnswers.reduce((sum, qa) => sum + qa.answer.split(' ').length, 0)
+      console.log(`   ✅ ${neighborhood}: ${neighborhoodWords} words`)
+
+      neighborhoodPages.push({
+        title: `Dumpster Rental ${neighborhood} ${cityData.state_code}`,
+        slug: `dumpster-rental-${neighborhood.toLowerCase().replace(/\s+/g, '-')}-${cityData.state_code.toLowerCase()}`,
+        htmlContent: this.buildNeighborhoodPage(cityData, neighborhood, neighborhoods, neighborhoodAnswers),
+        metaDescription: `Dumpster rental in ${neighborhood}, ${cityData.state_code}. Fast delivery, competitive pricing. Call (866) 858-3867.`
+      })
+    }
+
+    const totalWords = mainWords + neighborhoodPages.reduce((sum, page) => {
+      const content = page.htmlContent.replace(/<[^>]*>/g, '')
+      return sum + content.split(' ').length
+    }, 0)
+
+    console.log(`\n📊 Content Generation Complete:`)
+    console.log(`   📄 Total pages: ${1 + neighborhoods.length}`)
+    console.log(`   📝 Total words: ${totalWords.toLocaleString()}`)
+    console.log(`   🏠 Main page: ${mainWords.toLocaleString()} words`)
+    console.log(`   🏘️  Neighborhood pages: ${neighborhoodPages.length}`)
+
+    return {
+      mainCityPage: {
+        title: `Dumpster Rental ${cityData.city} ${cityData.state_code} | Ultimate Dumpsters`,
+        slug: cityData.slug,
+        htmlContent: mainHtmlContent,
+        metaDescription: `Professional dumpster rental in ${cityData.city}, ${cityData.state_code}. Serving ${neighborhoods.slice(0, 4).join(', ')} & more. Same-day delivery available. Call (866) 858-3867.`
+      },
+      neighborhoodPages
+    }
+  }
+
+  private buildMainPage(cityData: any, neighborhoods: string[], answers: Array<{question: string, answer: string}>, schema: any): string {
+    // Table of contents
+    const tocItems = [
+      { id: 'residential', title: '🏠 Residential Services', icon: '🏠' },
+      { id: 'commercial', title: '🏢 Commercial Services', icon: '🏢' },
+      { id: 'construction', title: '🏗️ Construction Services', icon: '🏗️' },
+      { id: 'pricing', title: '💰 Pricing Guide', icon: '💰' },
+      { id: 'sizes', title: '📏 Size Guide', icon: '📏' },
+      { id: 'how-it-works', title: '⚙️ How It Works', icon: '⚙️' },
+      { id: 'neighborhoods', title: '📍 Service Areas', icon: '📍' },
+      { id: 'faq', title: '❓ FAQ', icon: '❓' }
+    ]
+
+    return `
+<script type="application/ld+json">
+${JSON.stringify(schema, null, 2)}
+</script>
+
+<!-- THIS IS A COMPLETE, SEO-OPTIMIZED PAGE -->
+
+<div class="city-landing-premium">
+  
+  <!-- Breadcrumbs -->
+  <nav class="breadcrumbs">
+    <a href="https://ultimatedumpsters.com">Home</a>
+    <span>›</span>
+    <a href="https://ultimatedumpsters.com/service-areas">Service Areas</a>
+    <span>›</span>
+    <span>${cityData.city}, ${cityData.state_code}</span>
+  </nav>
+
+  <!-- Hero Section -->
+  <div class="hero-premium">
+    <div class="hero-content">
+      <h1>Dumpster Rental in ${cityData.city}, ${cityData.state_code}</h1>
+      <p class="hero-subtitle">Professional waste management for residential, commercial, and construction projects</p>
+      
+      <div class="hero-stats">
+        <div class="stat">
+          <div class="stat-icon">⭐</div>
+          <div class="stat-content">
+            <strong>4.9/5 Rating</strong>
+            <span>1,200+ Reviews</span>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="stat-icon">🏆</div>
+          <div class="stat-content">
+            <strong>15+ Years</strong>
+            <span>In Business</span>
+          </div>
+        </div>
+        <div class="stat">
+          <div class="stat-icon">⚡</div>
+          <div class="stat-content">
+            <strong>Same-Day</strong>
+            <span>Delivery Available</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="hero-cta">
+        <a href="tel:8668583867" class="cta-primary">
+          📞 Call (866) 858-3867
+        </a>
+        <a href="#pricing" class="cta-secondary">
+          View Pricing
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Table of Contents -->
+  <div class="toc-container">
+    <h2>Quick Navigation</h2>
+    <div class="toc-grid">
+      ${tocItems.map(item => `
+        <a href="#${item.id}" class="toc-item">
+          <span class="toc-icon">${item.icon}</span>
+          <span>${item.title}</span>
+        </a>
+      `).join('')}
+    </div>
+  </div>
+
+  <!-- Service Areas Grid -->
+  <div id="neighborhoods" class="section">
+    <h2>🗺️ Areas We Serve in ${cityData.city}</h2>
+    <p class="section-intro">Fast, reliable dumpster rental across all ${cityData.city} neighborhoods</p>
+    <div class="neighborhoods-grid">
+      ${neighborhoods.map(n => `
+        <a href="/dumpster-rental-${n.toLowerCase().replace(/\s+/g, '-')}-${cityData.state_code.toLowerCase()}" class="neighborhood-card">
+          <div class="neighborhood-icon">📍</div>
+          <h3>${n}</h3>
+          <p>Same-day delivery available</p>
+        </a>
+      `).join('')}
+    </div>
+  </div>
+
+  <!-- Pricing Table -->
+  <div id="pricing" class="section pricing-section">
+    <h2>💰 Transparent Pricing for ${cityData.city}</h2>
+    <p class="section-intro">No hidden fees. No surprises. Just honest pricing.</p>
+    
+    <div class="pricing-table">
+      <div class="pricing-card">
+        <div class="pricing-size">10 Yard</div>
+        <div class="pricing-price">$295</div>
+        <ul class="pricing-features">
+          <li>✓ Perfect for bathroom remodels</li>
+          <li>✓ Small cleanouts</li>
+          <li>✓ Garage cleanouts</li>
+          <li>✓ 3-day rental period</li>
+          <li>✓ 2-ton weight limit</li>
+        </ul>
+        <a href="tel:8668583867" class="pricing-cta">Order Now</a>
+      </div>
+      
+      <div class="pricing-card featured">
+        <div class="pricing-badge">Most Popular</div>
+        <div class="pricing-size">20 Yard</div>
+        <div class="pricing-price">$395</div>
+        <ul class="pricing-features">
+          <li>✓ Kitchen remodels</li>
+          <li>✓ Deck removal</li>
+          <li>✓ Medium renovations</li>
+          <li>✓ 7-day rental period</li>
+          <li>✓ 3-ton weight limit</li>
+        </ul>
+        <a href="tel:8668583867" class="pricing-cta">Order Now</a>
+      </div>
+      
+      <div class="pricing-card">
+        <div class="pricing-size">30 Yard</div>
+        <div class="pricing-price">$495</div>
+        <ul class="pricing-features">
+          <li>✓ Major renovations</li>
+          <li>✓ New construction</li>
+          <li>✓ Large cleanouts</li>
+          <li>✓ 7-day rental period</li>
+          <li>✓ 4-ton weight limit</li>
+        </ul>
+        <a href="tel:8668583867" class="pricing-cta">Order Now</a>
+      </div>
+      
+      <div class="pricing-card">
+        <div class="pricing-size">40 Yard</div>
+        <div class="pricing-price">$695</div>
+        <ul class="pricing-features">
+          <li>✓ Commercial projects</li>
+          <li>✓ Major construction</li>
+          <li>✓ Large demolitions</li>
+          <li>✓ 14-day rental period</li>
+          <li>✓ 5-ton weight limit</li>
+        </ul>
+        <a href="tel:8668583867" class="pricing-cta">Order Now</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- How It Works -->
+  <div id="how-it-works" class="section how-it-works">
+    <h2>⚙️ How It Works</h2>
+    <p class="section-intro">Get your dumpster in 3 easy steps</p>
+    
+    <div class="steps-grid">
+      <div class="step">
+        <div class="step-number">1</div>
+        <h3>Call or Order Online</h3>
+        <p>Contact us at (866) 858-3867 or place your order online. Tell us your project details and we'll recommend the perfect size.</p>
+      </div>
+      
+      <div class="step">
+        <div class="step-number">2</div>
+        <h3>Fast Delivery</h3>
+        <p>We'll deliver your dumpster to your ${cityData.city} location at your scheduled time. Same-day delivery available for most areas.</p>
+      </div>
+      
+      <div class="step">
+        <div class="step-number">3</div>
+        <h3>We Pick It Up</h3>
+        <p>When you're done, give us a call and we'll pick up the dumpster and handle all disposal. It's that simple.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Size Guide -->
+  <div id="sizes" class="section size-guide">
+    <h2>📏 Dumpster Size Guide</h2>
+    <p class="section-intro">Choose the right size for your ${cityData.city} project</p>
+    
+    <div class="size-comparison">
+      <div class="size-item">
+        <h3>10 Yard Dumpster</h3>
+        <div class="size-visual">🗑️</div>
+        <p><strong>Dimensions:</strong> 12' L × 8' W × 3.5' H</p>
+        <p><strong>Holds:</strong> ~3 pickup truck loads</p>
+        <p><strong>Best for:</strong> Small cleanouts, bathroom remodels, minor debris</p>
+      </div>
+      
+      <div class="size-item">
+        <h3>20 Yard Dumpster</h3>
+        <div class="size-visual">🗑️🗑️</div>
+        <p><strong>Dimensions:</strong> 22' L × 8' W × 4.5' H</p>
+        <p><strong>Holds:</strong> ~6 pickup truck loads</p>
+        <p><strong>Best for:</strong> Kitchen remodels, deck removal, medium renovations</p>
+      </div>
+      
+      <div class="size-item">
+        <h3>30 Yard Dumpster</h3>
+        <div class="size-visual">🗑️🗑️🗑️</div>
+        <p><strong>Dimensions:</strong> 22' L × 8' W × 6' H</p>
+        <p><strong>Holds:</strong> ~9 pickup truck loads</p>
+        <p><strong>Best for:</strong> Major renovations, new construction, large cleanouts</p>
+      </div>
+      
+      <div class="size-item">
+        <h3>40 Yard Dumpster</h3>
+        <div class="size-visual">🗑️🗑️🗑️🗑️</div>
+        <p><strong>Dimensions:</strong> 22' L × 8' W × 8' H</p>
+        <p><strong>Holds:</strong> ~12 pickup truck loads</p>
+        <p><strong>Best for:</strong> Commercial projects, major construction, demolitions</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- FAQ Section - Residential -->
+  <div id="residential" class="section faq-section">
+    <h2>🏠 Residential Dumpster Rental in ${cityData.city}</h2>
+    <div class="faq-grid">
+      ${answers.slice(0, 7).map(qa => `
+        <div class="faq-item">
+          <h3 class="faq-question">${qa.question}</h3>
+          <div class="faq-answer">${qa.answer.split('\n\n').map(p => `<p>${p}</p>`).join('')}</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+
+  <!-- FAQ Section - Commercial -->
+  <div id="commercial" class="section faq-section">
+    <h2>🏢 Commercial Dumpster Services in ${cityData.city}</h2>
+    <div class="faq-grid">
+      ${answers.slice(7, 13).map(qa => `
+        <div class="faq-item">
+          <h3 class="faq-question">${qa.question}</h3>
+          <div class="faq-answer">${qa.answer.split('\n\n').map(p => `<p>${p}</p>`).join('')}</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+
+  <!-- FAQ Section - Construction -->
+  <div id="construction" class="section faq-section">
+    <h2>🏗️ Construction Dumpster Rental in ${cityData.city}</h2>
+    <div class="faq-grid">
+      ${answers.slice(13, 19).map(qa => `
+        <div class="faq-item">
+          <h3 class="faq-question">${qa.question}</h3>
+          <div class="faq-answer">${qa.answer.split('\n\n').map(p => `<p>${p}</p>`).join('')}</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+
+  <!-- FAQ Section - Pricing -->
+  <div id="faq" class="section faq-section">
+    <h2>💰 Pricing & Logistics in ${cityData.city}</h2>
+    <div class="faq-grid">
+      ${answers.slice(19, 25).map(qa => `
+        <div class="faq-item">
+          <h3 class="faq-question">${qa.question}</h3>
+          <div class="faq-answer">${qa.answer.split('\n\n').map(p => `<p>${p}</p>`).join('')}</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+
+  <!-- Final CTA -->
+  <div class="final-cta">
+    <h2>Ready to Rent a Dumpster in ${cityData.city}?</h2>
+    <p>Get your free quote today. Same-day delivery available.</p>
+    <a href="tel:8668583867" class="cta-button-large">
+      📞 Call (866) 858-3867
+    </a>
+    <p class="cta-subtext">Or <a href="https://ultimatedumpsters.com/contact-us">request a quote online</a></p>
+  </div>
+
+</div>
+`
+  }
+
+  private buildNeighborhoodPage(cityData: any, neighborhood: string, allNeighborhoods: string[], answers: Array<{question: string, answer: string}>): string {
+    return `
+<div class="city-landing-premium">
+  
+  <!-- Breadcrumbs -->
+  <nav class="breadcrumbs">
+    <a href="https://ultimatedumpsters.com">Home</a>
+    <span>›</span>
+    <a href="https://ultimatedumpsters.com/service-areas">Service Areas</a>
+    <span>›</span>
+    <a href="/dumpster-rental-${cityData.city.toLowerCase()}-${cityData.state_code.toLowerCase()}">${cityData.city}, ${cityData.state_code}</a>
+    <span>›</span>
+    <span>${neighborhood}</span>
+  </nav>
+
+  <!-- Hero Section -->
+  <div class="hero-premium neighborhood-hero">
+    <div class="hero-content">
+      <h1>Dumpster Rental in ${neighborhood}, ${cityData.state_code}</h1>
+      <p class="hero-subtitle">Professional waste management serving ${neighborhood} residents and businesses</p>
+      
+      <div class="hero-cta">
+        <a href="tel:8668583867" class="cta-primary">
+          📞 Call (866) 858-3867
+        </a>
+        <a href="/dumpster-rental-${cityData.city.toLowerCase()}-${cityData.state_code.toLowerCase()}" class="cta-secondary">
+          ← Back to ${cityData.city}
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- FAQ Section -->
+  <div class="section faq-section">
+    <h2>Your ${neighborhood} Dumpster Rental Questions Answered</h2>
+    <div class="faq-grid">
+      ${answers.map(qa => `
+        <div class="faq-item">
+          <h3 class="faq-question">${qa.question}</h3>
+          <div class="faq-answer">${qa.answer.split('\n\n').map(p => `<p>${p}</p>`).join('')}</div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+
+  <!-- Other Neighborhoods -->
+  <div class="section">
+    <h2>Other ${cityData.city} Area Neighborhoods We Serve</h2>
+    <div class="neighborhoods-grid">
+      ${allNeighborhoods.filter(n => n !== neighborhood).map(n => `
+        <a href="/dumpster-rental-${n.toLowerCase().replace(/\s+/g, '-')}-${cityData.state_code.toLowerCase()}" class="neighborhood-card">
+          <div class="neighborhood-icon">📍</div>
+          <h3>${n}</h3>
+          <p>Learn more</p>
+        </a>
+      `).join('')}
+    </div>
+  </div>
+
+  <!-- CTA -->
+  <div class="final-cta">
+    <h2>Need a Dumpster in ${neighborhood}?</h2>
+    <p>Fast delivery to your ${neighborhood} location</p>
+    <a href="tel:8668583867" class="cta-button-large">
+      📞 Call (866) 858-3867
+    </a>
+  </div>
+
+</div>
+`
+  }
 }
