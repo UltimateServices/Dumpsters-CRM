@@ -1,49 +1,70 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { ContentGenerator } from '@/lib/content/content-generator'
+import { ResearchOrchestrator } from '@/lib/research/research-orchestrator'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
 export async function POST(request: NextRequest) {
   try {
     const { cityId } = await request.json()
 
-    console.log(`🔬 Starting research for city ID: ${cityId}`)
+    if (!cityId) {
+      return NextResponse.json(
+        { error: 'City ID is required' },
+        { status: 400 }
+      )
+    }
 
-    // Get city data from geo_locations
-    const { data: cityData, error: cityError } = await supabase
-      .from('geo_locations')
+    // Verify city exists
+    const { data: city, error: cityError } = await supabase
+      .from('cities')
       .select('*')
       .eq('id', cityId)
       .single()
 
-    if (cityError || !cityData) {
-      console.error('City lookup error:', cityError)
-      throw new Error('City not found')
+    if (cityError || !city) {
+      return NextResponse.json(
+        { error: 'City not found' },
+        { status: 404 }
+      )
     }
 
-    console.log(`📍 Found: ${cityData.city}, ${cityData.state_code}`)
+    // Check if research already in progress
+    const { data: existingJob } = await supabase
+      .from('research_jobs')
+      .select('*')
+      .eq('city_id', cityId)
+      .eq('status', 'processing')
+      .single()
 
-    // Generate content
-    const generator = new ContentGenerator(process.env.ANTHROPIC_API_KEY!)
-    const content = await generator.generateCityContent(cityData)
+    if (existingJob) {
+      return NextResponse.json(
+        { error: 'Research already in progress for this city' },
+        { status: 400 }
+      )
+    }
 
-    console.log(`✅ Content generated!`)
+    // Start research in background
+    const orchestrator = new ResearchOrchestrator(process.env.ANTHROPIC_API_KEY!)
+    
+    // Don't await - let it run in background
+    orchestrator.researchCity(cityId).catch(err => {
+      console.error('Background research error:', err)
+    })
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       success: true,
-      message: 'Research completed',
-      city: `${cityData.city}, ${cityData.state_code}`,
-      content: content
+      message: 'Research started',
+      cityId
     })
 
   } catch (error: any) {
     console.error('Research API error:', error)
     return NextResponse.json(
-      { error: error.message },
+      { error: error.message || 'Internal server error' },
       { status: 500 }
     )
   }
