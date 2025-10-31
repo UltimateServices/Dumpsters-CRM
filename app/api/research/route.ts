@@ -7,6 +7,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
+export const maxDuration = 60 // Vercel Hobby max (upgrade to Pro for 300)
+
 export async function POST(request: NextRequest) {
   try {
     const { cityId } = await request.json()
@@ -18,6 +20,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    console.log(`🔍 Research API: Received cityId=${cityId}`)
+
     // Verify city exists
     const { data: city, error: cityError } = await supabase
       .from('cities')
@@ -26,11 +30,14 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (cityError || !city) {
+      console.error('❌ City not found:', cityError)
       return NextResponse.json(
         { error: 'City not found' },
         { status: 404 }
       )
     }
+
+    console.log(`📍 Found city: ${city.city}, ${city.state_code}`)
 
     // Check if research already in progress
     const { data: existingJob } = await supabase
@@ -47,22 +54,36 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Verify ANTHROPIC_API_KEY
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.error('❌ ANTHROPIC_API_KEY not set')
+      return NextResponse.json(
+        { error: 'Server configuration error' },
+        { status: 500 }
+      )
+    }
+
+    console.log('🚀 Starting research orchestrator...')
+
     // Start research in background
     const orchestrator = new ResearchOrchestrator(process.env.ANTHROPIC_API_KEY!)
     
     // Don't await - let it run in background
+    // Note: On Vercel Hobby, this will timeout after 60 seconds
+    // Upgrade to Pro for 5-minute timeout
     orchestrator.researchCity(cityId).catch(err => {
-      console.error('Background research error:', err)
+      console.error('💥 Background research error:', err)
     })
 
     return NextResponse.json({
       success: true,
-      message: 'Research started',
-      cityId
+      message: `Research started for ${city.city}, ${city.state_code}`,
+      cityId,
+      warning: 'Note: Functions on Vercel Hobby timeout after 60 seconds. Upgrade to Pro for longer research tasks.'
     })
 
   } catch (error: any) {
-    console.error('Research API error:', error)
+    console.error('💥 Research API error:', error)
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
       { status: 500 }

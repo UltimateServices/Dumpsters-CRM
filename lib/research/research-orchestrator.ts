@@ -28,6 +28,7 @@ export class ResearchOrchestrator {
   async researchCity(cityId: string) {
     console.log(`Starting research for city: ${cityId}`)
 
+    // Get city data
     const { data: city, error: cityError } = await supabase
       .from('cities')
       .select('*')
@@ -38,6 +39,9 @@ export class ResearchOrchestrator {
       throw new Error('City not found')
     }
 
+    console.log(`📍 Researching: ${city.city}, ${city.state_code}`)
+
+    // Create research job
     const { data: job, error: jobError } = await supabase
       .from('research_jobs')
       .insert({
@@ -51,7 +55,7 @@ export class ResearchOrchestrator {
       .single()
 
     if (jobError) {
-      throw new Error('Failed to create research job')
+      throw new Error('Failed to create research job: ' + jobError.message)
     }
 
     try {
@@ -69,6 +73,7 @@ export class ResearchOrchestrator {
       
       await this.updateProgress(job.id, 90, 'Finalizing content...')
 
+      // Save completed research
       await supabase
         .from('research_jobs')
         .update({
@@ -76,24 +81,25 @@ export class ResearchOrchestrator {
           progress: 100,
           current_step: 'Complete!',
           completed_at: new Date().toISOString(),
-          results_json: { generatedContent }
+          results_json: generatedContent
         })
         .eq('id', job.id)
 
-      console.log(`Research completed for ${city.city}`)
+      console.log(`✅ Research completed for ${city.city}`)
       return generatedContent
 
     } catch (error: any) {
-      console.error('Research error:', error)
+      console.error('💥 Research error:', error)
       
+      // Mark job as failed
       await supabase
         .from('research_jobs')
         .update({
           status: 'failed',
           progress: 0,
-          current_step: 'Failed: ' + error.message,
+          current_step: 'Failed',
           completed_at: new Date().toISOString(),
-          error_message: error.message
+          error_message: error.message || 'Unknown error'
         })
         .eq('id', job.id)
 
