@@ -1,120 +1,77 @@
 import { createClient } from '@supabase/supabase-js'
-import { scrapeLocalData } from '../local-data-scraper'
-import { generateHubAndSpoke } from '../question-generator'
+import { ContentGenerator } from '../content/content-generator'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-interface ResearchJob {
-  id: string
-  city_id: string
-  city_slug: string
-  status: 'pending' | 'in_progress' | 'completed' | 'failed'
-  created_at: string
-}
+export class ResearchOrchestrator {
+  private contentGenerator: ContentGenerator
 
-export async function startResearch(cityId: string, citySlug: string) {
-  console.log(`🔬 Starting research for ${citySlug}`)
-
-  const jobs = [
-    { type: 'local_data', city_id: cityId, city_slug: citySlug },
-    { type: 'content', city_id: cityId, city_slug: citySlug },
-    { type: 'background', city_id: cityId, city_slug: citySlug }
-  ]
-
-  const { data, error } = await supabase
-    .from('research_jobs')
-    .insert(jobs)
-    .select()
-
-  if (error) throw error
-
-  console.log(`✅ Created ${data.length} research jobs`)
-
-  // Start processing immediately
-  for (const job of data) {
-    processJob(job.id, job.city_id, job.city_slug).catch(console.error)
+  constructor(anthropicKey: string) {
+    this.contentGenerator = new ContentGenerator(anthropicKey)
   }
 
-  return data
-}
+  async researchCity(cityId: string) {
+    console.log(`Starting research for city: ${cityId}`)
 
-async function processJob(jobId: string, cityId: string, citySlug: string) {
-  try {
-    await supabase
-      .from('research_jobs')
-      .update({ status: 'in_progress' })
-      .eq('id', jobId)
-
-    await runResearchForCity(jobId, cityId, citySlug)
-
-    await supabase
-      .from('research_jobs')
-      .update({ status: 'completed' })
-      .eq('id', jobId)
-  } catch (error) {
-    console.error('Job processing error:', error)
-    await supabase
-      .from('research_jobs')
-      .update({ status: 'failed' })
-      .eq('id', jobId)
-  }
-}
-
-async function runResearchForCity(
-  jobId: string,
-  cityId: string,
-  citySlug: string
-) {
-  try {
-    console.log(`🚀 Starting research for city: ${cityId}`)
-
-    const { data: cityData } = await supabase
+    // Get city data
+    const { data: city, error: cityError } = await supabase
       .from('cities')
       .select('*')
       .eq('id', cityId)
       .single()
 
-    if (!cityData) {
+    if (cityError || !city) {
       throw new Error('City not found')
     }
 
-    console.log(`📍 City: ${cityData.city}, ${cityData.state_code}`)
-
-    // Generate content using ContentGenerator class
-    const { ContentGenerator } = await import('../content/content-generator')
-    const generator = new ContentGenerator(process.env.ANTHROPIC_API_KEY!)
-    const content = await generator.generateCityContent(cityData)
-
-    // Save to Supabase
-    const { error: saveError } = await supabase
-      .from('city_research')
-      .upsert({
+    // Create research job
+    const { data: job, error: jobError } = await supabase
+      .from('research_jobs')
+      .insert({
         city_id: cityId,
-        city_slug: citySlug,
-        research_data: content,
-        status: 'completed',
-        updated_at: new Date().toISOString()
+        status: 'processing',
+        started_at: new Date().toISOString()
       })
+      .select()
+      .single()
 
-    if (saveError) throw saveError
+    if (jobError) {
+      throw new Error('Failed to create research job')
+    }
 
-    console.log(`✅ Research completed for ${cityData.city}`)
-  } catch (error) {
-    console.error('Research orchestrator error:', error)
-    throw error
+    try {
+      // Generate content
+      const generatedContent = await this.contentGenerator.generateCityContent(city)
+
+      // Update job with results
+      await supabase
+        .from('research_jobs')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          results_json: { generatedContent }
+        })
+        .eq('id', job.id)
+
+      console.log(`Research completed for ${city.city}`)
+      return generatedContent
+
+    } catch (error: any) {
+      console.error('Research error:', error)
+      
+      await supabase
+        .from('research_jobs')
+        .update({
+          status: 'failed',
+          completed_at: new Date().toISOString(),
+          error_message: error.message
+        })
+        .eq('id', job.id)
+
+      throw error
+    }
   }
-}
-
-export async function getResearchStatus(citySlug: string) {
-  const { data, error } = await supabase
-    .from('research_jobs')
-    .select('*')
-    .eq('city_slug', citySlug)
-    .order('created_at', { ascending: false })
-
-  if (error) throw error
-  return data
 }
