@@ -81,7 +81,8 @@ export default function Dashboard() {
     const city = cities.find(c => c.id === cityId)
     if (!city) return
 
-    const confirmMessage = `Research ${city.city}, ${city.state_code}?\n\nThis will generate ${getNeighborhoodCount(city.city)} pages with ~15,000-20,000 words of content.\n\nEstimated time: 8-10 minutes\nCost: ~$0.50 in API calls`
+    const neighborhoodCount = getNeighborhoodCount(city.city)
+    const confirmMessage = `Research ${city.city}, ${city.state_code}?\n\nThis will generate ${neighborhoodCount} pages with ~15,000-20,000 words of content.\n\nEstimated time: 8-10 minutes\nCost: ~$0.50 in API calls`
     
     if (!confirm(confirmMessage)) return
 
@@ -653,6 +654,7 @@ export default function Dashboard() {
                 const isPublishing = publishingCities.has(city.id)
                 const canPublish = job?.status === 'completed' && !isPublishing
                 const canPreview = job?.status === 'completed'
+                const previewUrl = '/preview/' + city.id
 
                 return (
                   <tr key={city.id}>
@@ -678,9 +680,9 @@ export default function Dashboard() {
                         >
                           {isPublishing ? '⏳' : '📤'}
                         </button>
-                          {canPreview && (
+                        {canPreview && (
                           
-                            href={"/preview/" + city.id}
+                            href={previewUrl}
                             className="btn btn-preview"
                           >
                             👁️
