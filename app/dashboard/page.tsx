@@ -64,145 +64,31 @@ export default function Dashboard() {
     setResearchingCities(prev => new Set(prev).add(cityId))
 
     try {
-      console.log('🚀 Initializing research...')
+      console.log('🚀 Starting research via Railway...')
       
-      // Step 1: Initialize job
-      const initResponse = await fetch('/api/research', {
+      // Call Railway backend
+      const response = await fetch('https://content-generation-service-production.up.railway.app/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cityId })
       })
 
-      const initData = await initResponse.json()
-      if (!initResponse.ok) throw new Error(initData.error)
-
-      const { jobId, neighborhoods } = initData
-      console.log(`✅ Job ID: ${jobId}`)
-
-      const updateProgress = async (progress: number, step: string) => {
-        await supabase.from('research_jobs').update({
-          progress: Math.round(progress),
-          current_step: step
-        }).eq('id', jobId)
-        await fetchResearchJobs()
-      }
-
-      // Main page sections (6 sections)
-      const mainSections = [
-        { key: 'hero_services', label: 'Hero & Services', progress: 5 },
-        { key: 'areas_whychoose', label: 'Areas & Why Choose Us', progress: 15 },
-        { key: 'pricing_process', label: 'Pricing & Process', progress: 25 },
-        { key: 'faqs_part1', label: 'FAQs Part 1', progress: 35 },
-        { key: 'faqs_part2', label: 'FAQs Part 2', progress: 45 },
-        { key: 'testimonials_cta', label: 'Testimonials & CTA', progress: 50 }
-      ]
-
-      console.log('📄 Generating main city page (6 sections)...')
+      const data = await response.json()
       
-      for (const section of mainSections) {
-        await updateProgress(section.progress, `Main page: ${section.label}...`)
-        
-        const response = await fetch('/api/generate-section', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            cityId,
-            pageType: 'main',
-            section: section.key,
-            jobId
-          })
-        })
-
-        if (!response.ok) {
-          console.error(`Failed to generate ${section.key}`)
-          throw new Error(`Failed to generate main page section: ${section.label}`)
-        }
-
-        const data = await response.json()
-        console.log(`✅ ${section.label} complete (${data.wordCount} words)`)
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to start research')
       }
 
-      console.log('✅ Main city page complete!')
-
-      // Neighborhood pages (4 neighborhoods, 3 sections each)
-      const neighborhoodSections = [
-        { key: 'intro_projects', label: 'Intro & Projects' },
-        { key: 'service_details', label: 'Service Details' },
-        { key: 'faqs_cta', label: 'FAQs & CTA' }
-      ]
-
-      const baseProgress = 50
-      const progressPerNeighborhood = 12.5 // 50% total / 4 neighborhoods
-
-      for (let i = 0; i < neighborhoods.length; i++) {
-        const neighborhood = neighborhoods[i]
-        const neighborhoodProgress = baseProgress + (i * progressPerNeighborhood)
-        
-        console.log(`📄 Generating ${neighborhood} page...`)
-
-        for (let j = 0; j < neighborhoodSections.length; j++) {
-          const section = neighborhoodSections[j]
-          const sectionProgress = neighborhoodProgress + (j * (progressPerNeighborhood / 3))
-          
-          await updateProgress(sectionProgress, `${neighborhood}: ${section.label}...`)
-          
-          const response = await fetch('/api/generate-section', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              cityId,
-              pageType: 'neighborhood',
-              section: section.key,
-              neighborhoodName: neighborhood,
-              jobId
-            })
-          })
-
-          if (!response.ok) {
-            console.error(`Failed to generate ${neighborhood} ${section.key}`)
-            continue // Skip failed sections but continue
-          }
-
-          const data = await response.json()
-          console.log(`✅ ${neighborhood} - ${section.label} (${data.wordCount} words)`)
-        }
-
-        console.log(`✅ ${neighborhood} page complete!`)
-      }
-
-      // Assemble final pages from sections
-      await updateProgress(95, 'Assembling pages...')
-      await assemblePagesFromSections(jobId, cityId, city, neighborhoods)
-
-      // Mark complete
-      await supabase.from('research_jobs').update({
-        status: 'completed',
-        progress: 100,
-        current_step: 'Complete!',
-        completed_at: new Date().toISOString()
-      }).eq('id', jobId)
-
-      alert(`✅ Research completed for ${city.city}!\n\nGenerated:\n- 1 main page (5,400 words)\n- 4 neighborhood pages (2,200 words each)\n\nTotal: ~14,200 words\n\nReady to Preview or Publish!`)
+      console.log(`✅ Job started: ${data.jobId}`)
       
+      alert(`✅ Content generation started for ${city.city}!\n\nThis will take 8-10 minutes.\n\nThe dashboard will auto-refresh every 5 seconds to show progress.`)
+      
+      // Refresh jobs to show initial status
       await fetchResearchJobs()
 
     } catch (error: any) {
       console.error('💥 Research error:', error)
       alert('Error: ' + error.message)
-      
-      try {
-        await supabase
-          .from('research_jobs')
-          .update({
-            status: 'failed',
-            error_message: error.message,
-            completed_at: new Date().toISOString()
-          })
-          .eq('city_id', cityId)
-          .eq('status', 'processing')
-      } catch (e) {
-        console.error('Failed to update job status:', e)
-      }
     } finally {
       setResearchingCities(prev => {
         const newSet = new Set(prev)
@@ -210,82 +96,6 @@ export default function Dashboard() {
         return newSet
       })
     }
-  }
-
-  async function assemblePagesFromSections(jobId: string, cityId: string, city: any, neighborhoods: string[]) {
-    console.log('🔨 Assembling pages from sections...')
-    
-    const { data: job } = await supabase
-      .from('research_jobs')
-      .select('results_json')
-      .eq('id', jobId)
-      .single()
-
-    const sections = job?.results_json?.sections || {}
-    
-    // Assemble main page
-    const mainSections = sections.main || {}
-    const mainPage = {
-      type: 'main',
-      title: `Dumpster Rental in ${city.city}, ${city.state_code} - Affordable Roll-Off Rentals`,
-      metaDescription: `Professional dumpster rental in ${city.city}, ${city.state_code}. Residential, commercial & construction services. Fast delivery, transparent pricing. Call for your free quote today.`,
-      h1: `Dumpster Rental in ${city.city}, ${city.state_code}`,
-      content: {
-        heroServices: mainSections.hero_services?.content || '',
-        areasWhyChoose: mainSections.areas_whychoose?.content || '',
-        neighborhoods: mainSections.areas_whychoose?.neighborhoods || [],
-        pricingProcess: mainSections.pricing_process?.content || '',
-        faqsPart1: mainSections.faqs_part1?.faqs || [],
-        faqsPart2: mainSections.faqs_part2?.faqs || [],
-        testimonialsCta: mainSections.testimonials_cta?.content || ''
-      },
-      wordCount: 
-        (mainSections.hero_services?.wordCount || 0) +
-        (mainSections.areas_whychoose?.wordCount || 0) +
-        (mainSections.pricing_process?.wordCount || 0) +
-        (mainSections.faqs_part1?.wordCount || 0) +
-        (mainSections.faqs_part2?.wordCount || 0) +
-        (mainSections.testimonials_cta?.wordCount || 0),
-      generatedAt: new Date().toISOString()
-    }
-
-    // Assemble neighborhood pages
-    const neighborhoodPages = neighborhoods.map(neighborhood => {
-      const key = `neighborhood_${neighborhood}`
-      const nSections = sections[key] || {}
-      
-      return {
-        type: 'neighborhood',
-        neighborhoodName: neighborhood,
-        title: `Dumpster Rental in ${neighborhood}, ${city.city} - Fast Local Service`,
-        metaDescription: `Dumpster rental service in ${neighborhood}, ${city.city}. Same-day delivery available. Residential & commercial. Transparent pricing. Book online or call today.`,
-        h1: `Dumpster Rental in ${neighborhood}, ${city.city}`,
-        content: {
-          introProjects: nSections.intro_projects?.content || '',
-          serviceDetails: nSections.service_details?.content || '',
-          faqs: nSections.faqs_cta?.faqs || [],
-          cta: nSections.faqs_cta?.cta || ''
-        },
-        wordCount:
-          (nSections.intro_projects?.wordCount || 0) +
-          (nSections.service_details?.wordCount || 0) +
-          (nSections.faqs_cta?.wordCount || 0),
-        generatedAt: new Date().toISOString()
-      }
-    })
-
-    // Save assembled pages
-    await supabase
-      .from('research_jobs')
-      .update({
-        results_json: {
-          pages: [mainPage, ...neighborhoodPages],
-          sections // Keep sections for debugging
-        }
-      })
-      .eq('id', jobId)
-
-    console.log('✅ Pages assembled!')
   }
 
   const handlePublish = async (cityId: string) => {
