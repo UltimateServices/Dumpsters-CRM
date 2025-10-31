@@ -13,10 +13,21 @@ export class ResearchOrchestrator {
     this.contentGenerator = new ContentGenerator(anthropicKey)
   }
 
+  private async updateProgress(jobId: string, progress: number, currentStep: string) {
+    await supabase
+      .from('research_jobs')
+      .update({ 
+        progress,
+        current_step: currentStep 
+      })
+      .eq('id', jobId)
+    
+    console.log(`Progress: ${progress}% - ${currentStep}`)
+  }
+
   async researchCity(cityId: string) {
     console.log(`Starting research for city: ${cityId}`)
 
-    // Get city data
     const { data: city, error: cityError } = await supabase
       .from('cities')
       .select('*')
@@ -27,12 +38,13 @@ export class ResearchOrchestrator {
       throw new Error('City not found')
     }
 
-    // Create research job
     const { data: job, error: jobError } = await supabase
       .from('research_jobs')
       .insert({
         city_id: cityId,
         status: 'processing',
+        progress: 0,
+        current_step: 'Initializing research...',
         started_at: new Date().toISOString()
       })
       .select()
@@ -43,14 +55,26 @@ export class ResearchOrchestrator {
     }
 
     try {
-      // Generate content
+      await this.updateProgress(job.id, 5, 'Starting content generation...')
+      
+      await this.updateProgress(job.id, 10, 'Analyzing city demographics...')
+      
+      await this.updateProgress(job.id, 20, 'Researching local regulations...')
+      
+      await this.updateProgress(job.id, 30, 'Generating main city page...')
+      
       const generatedContent = await this.contentGenerator.generateCityContent(city)
+      
+      await this.updateProgress(job.id, 80, 'Generating neighborhood pages...')
+      
+      await this.updateProgress(job.id, 90, 'Finalizing content...')
 
-      // Update job with results
       await supabase
         .from('research_jobs')
         .update({
           status: 'completed',
+          progress: 100,
+          current_step: 'Complete!',
           completed_at: new Date().toISOString(),
           results_json: { generatedContent }
         })
@@ -66,6 +90,8 @@ export class ResearchOrchestrator {
         .from('research_jobs')
         .update({
           status: 'failed',
+          progress: 0,
+          current_step: 'Failed: ' + error.message,
           completed_at: new Date().toISOString(),
           error_message: error.message
         })
