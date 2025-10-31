@@ -678,9 +678,9 @@ export default function Dashboard() {
                         >
                           {isPublishing ? '⏳' : '📤'}
                         </button>
-                        {canPreview && (
+                          {canPreview && (
                           
-                            href={`/preview/${city.id}`}
+                            href={"/preview/" + city.id}
                             className="btn btn-preview"
                           >
                             👁️
