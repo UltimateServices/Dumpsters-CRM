@@ -64,10 +64,10 @@ export default function Dashboard() {
     setResearchingCities(prev => new Set(prev).add(cityId))
 
     try {
-      console.log('🚀 Starting research via Railway...')
+      console.log('🚀 Starting research...')
       
-      // Call Railway backend
-      const response = await fetch('https://content-generation-service-production.up.railway.app/research', {
+      // Call Vercel API
+      const response = await fetch('/api/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cityId })
