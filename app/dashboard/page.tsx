@@ -41,7 +41,6 @@ export default function Dashboard() {
     fetchCities()
     fetchResearchJobs()
     
-    // Poll for updates every 5 seconds
     const interval = setInterval(() => {
       fetchResearchJobs()
     }, 5000)
@@ -70,7 +69,6 @@ export default function Dashboard() {
     if (!error && data) {
       const jobMap = new Map<string, ResearchJob>()
       data.forEach(job => {
-        // Keep the most recent job for each city
         if (!jobMap.has(job.city_id)) {
           jobMap.set(job.city_id, job)
         }
@@ -104,7 +102,6 @@ export default function Dashboard() {
 
       alert(`Research started for ${city.city}!\n\nGenerating content in the background. This will take 8-10 minutes.`)
       
-      // Refresh jobs
       await fetchResearchJobs()
     } catch (error: any) {
       console.error('Research error:', error)
@@ -130,7 +127,7 @@ export default function Dashboard() {
     }
 
     const pageCount = job.results_json?.generatedContent?.neighborhoodPages?.length || 0
-    const totalPages = pageCount + 1 // +1 for main page
+    const totalPages = pageCount + 1
 
     const confirmMessage = `Publish ${city.city}, ${city.state_code} to WordPress?\n\nThis will create ${totalPages} pages on your site.`
     
@@ -158,7 +155,6 @@ export default function Dashboard() {
 
       alert(`✅ Successfully published ${data.pages.length} pages!\n\nMain URL:\n${data.mainUrl}\n\nAll pages are live on your site.`)
       
-      // Refresh cities to show updated wordpress_url
       await fetchCities()
     } catch (error: any) {
       console.error('Publishing error:', error)
@@ -181,7 +177,7 @@ export default function Dashboard() {
       'Chicago': 8,
       'San Antonio': 8
     }
-    return (neighborhoods[cityName] || 8) + 1 // +1 for main page
+    return (neighborhoods[cityName] || 8) + 1
   }
 
   const getStatusBadge = (cityId: string) => {
@@ -217,13 +213,11 @@ export default function Dashboard() {
 
     let totalWords = 0
     
-    // Count main page words
     if (content.mainCityPage?.htmlContent) {
       const text = content.mainCityPage.htmlContent.replace(/<[^>]*>/g, '')
       totalWords += text.split(/\s+/).length
     }
 
-    // Count neighborhood pages
     if (content.neighborhoodPages) {
       content.neighborhoodPages.forEach((page: any) => {
         const text = page.htmlContent.replace(/<[^>]*>/g, '')
@@ -235,13 +229,11 @@ export default function Dashboard() {
   }
 
   const filteredCities = cities.filter(city => {
-    // Search filter
     const matchesSearch = city.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          city.state_code.toLowerCase().includes(searchTerm.toLowerCase())
     
     if (!matchesSearch) return false
 
-    // Status filter
     const job = researchJobs.get(city.id)
     
     switch (statusFilter) {
@@ -688,7 +680,7 @@ export default function Dashboard() {
                         </button>
                         {canPreview && (
                           
-                            href={`/preview/${city.id}`}
+                            href={'/preview/' + city.id}
                             className="btn btn-preview"
                           >
                             👁️
