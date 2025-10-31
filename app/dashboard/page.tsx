@@ -680,7 +680,7 @@ export default function Dashboard() {
                         </button>
                         {canPreview && (
                           
-                            href={'/preview/' + city.id}
+                            href={`/preview/${city.id}`}
                             className="btn btn-preview"
                           >
                             👁️
