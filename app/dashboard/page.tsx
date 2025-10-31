@@ -59,27 +59,122 @@ export default function Dashboard() {
     const city = cities.find(c => c.id === cityId)
     if (!city) return
 
-    if (!confirm(`Research ${city.city}, ${city.state_code}?\n\nEstimated time: 8-10 minutes\nCost: ~$0.50 in API calls`)) return
+    if (!confirm(`Research ${city.city}, ${city.state_code}?\n\nThis will generate 5 pages:\n- 1 main city page\n- 4 neighborhood pages\n\nEstimated time: 5-10 minutes`)) return
 
     setResearchingCities(prev => new Set(prev).add(cityId))
 
     try {
-      const response = await fetch('/api/research', {
+      // Step 1: Initialize research job
+      console.log('🚀 Initializing research...')
+      const initResponse = await fetch('/api/research', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cityId })
       })
 
-      const data = await response.json()
+      const initData = await initResponse.json()
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to start research')
+      if (!initResponse.ok) {
+        throw new Error(initData.error || 'Failed to initialize research')
       }
 
-      alert(`Research initiated for ${city.city}\n\nProgress tracking available in dashboard`)
+      const { jobId, neighborhoods, totalPages } = initData
+      console.log(`✅ Research initialized. Job ID: ${jobId}`)
+      console.log(`📋 Will generate ${totalPages} pages`)
+
+      let completedPages = 0
+
+      // Helper function to update progress
+      const updateProgress = async (progress: number, step: string) => {
+        await supabase.from('research_jobs').update({
+          progress: Math.round(progress),
+          current_step: step
+        }).eq('id', jobId)
+        await fetchResearchJobs()
+      }
+
+      // Step 2: Generate main city page
+      console.log('📄 Generating main city page...')
+      await updateProgress(10, `Generating main city page (1/${totalPages})...`)
+      
+      const mainPageResponse = await fetch('/api/generate-page', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cityId,
+          pageType: 'main',
+          jobId
+        })
+      })
+
+      if (!mainPageResponse.ok) {
+        throw new Error('Failed to generate main city page')
+      }
+
+      completedPages++
+      console.log(`✅ Main city page complete (${completedPages}/${totalPages})`)
+      await updateProgress(30, `Main city page complete (${completedPages}/${totalPages})`)
+
+      // Step 3: Generate neighborhood pages
+      for (let i = 0; i < neighborhoods.length; i++) {
+        const neighborhood = neighborhoods[i]
+        const pageNum = completedPages + 1
+        const progressPercent = 30 + ((i + 1) / neighborhoods.length) * 60
+
+        console.log(`📄 Generating neighborhood page: ${neighborhood} (${pageNum}/${totalPages})...`)
+        await updateProgress(progressPercent, `Generating ${neighborhood} page (${pageNum}/${totalPages})...`)
+
+        const neighborhoodResponse = await fetch('/api/generate-page', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cityId,
+            pageType: 'neighborhood',
+            neighborhoodName: neighborhood,
+            jobId
+          })
+        })
+
+        if (!neighborhoodResponse.ok) {
+          console.error(`⚠️ Failed to generate ${neighborhood} page, continuing...`)
+          continue
+        }
+
+        completedPages++
+        console.log(`✅ ${neighborhood} page complete (${completedPages}/${totalPages})`)
+      }
+
+      // Step 4: Mark job as completed
+      console.log('🎉 All pages generated! Marking job complete...')
+      await supabase.from('research_jobs').update({
+        status: 'completed',
+        progress: 100,
+        current_step: 'Complete!',
+        completed_at: new Date().toISOString()
+      }).eq('id', jobId)
+
+      alert(`✅ Research completed for ${city.city}!\n\nGenerated ${completedPages} pages.\n\nYou can now Preview or Publish to WordPress.`)
+      
       await fetchResearchJobs()
+
     } catch (error: any) {
+      console.error('💥 Research error:', error)
       alert('Error: ' + error.message)
+      
+      // Try to mark job as failed
+      try {
+        await supabase
+          .from('research_jobs')
+          .update({
+            status: 'failed',
+            error_message: error.message,
+            completed_at: new Date().toISOString()
+          })
+          .eq('city_id', cityId)
+          .eq('status', 'processing')
+      } catch (e) {
+        console.error('Failed to update job status:', e)
+      }
     } finally {
       setResearchingCities(prev => {
         const newSet = new Set(prev)

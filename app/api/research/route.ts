@@ -1,28 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { ResearchOrchestrator } from '@/lib/research/research-orchestrator'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-export const maxDuration = 60 // Vercel Hobby max (upgrade to Pro for 300)
-
 export async function POST(request: NextRequest) {
   try {
     const { cityId } = await request.json()
 
     if (!cityId) {
-      return NextResponse.json(
-        { error: 'City ID is required' },
-        { status: 400 }
-      )
+      return NextResponse.json({ error: 'City ID is required' }, { status: 400 })
     }
 
-    console.log(`🔍 Research API: Received cityId=${cityId}`)
-
-    // Verify city exists
     const { data: city, error: cityError } = await supabase
       .from('cities')
       .select('*')
@@ -30,16 +21,9 @@ export async function POST(request: NextRequest) {
       .single()
 
     if (cityError || !city) {
-      console.error('❌ City not found:', cityError)
-      return NextResponse.json(
-        { error: 'City not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'City not found' }, { status: 404 })
     }
 
-    console.log(`📍 Found city: ${city.city}, ${city.state_code}`)
-
-    // Check if research already in progress
     const { data: existingJob } = await supabase
       .from('research_jobs')
       .select('*')
@@ -54,39 +38,38 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Verify ANTHROPIC_API_KEY
     if (!process.env.ANTHROPIC_API_KEY) {
-      console.error('❌ ANTHROPIC_API_KEY not set')
-      return NextResponse.json(
-        { error: 'Server configuration error' },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
     }
 
-    console.log('🚀 Starting research orchestrator...')
+    const { data: job, error: jobError } = await supabase
+      .from('research_jobs')
+      .insert({
+        city_id: cityId,
+        status: 'processing',
+        progress: 0,
+        current_step: 'Initializing...',
+        started_at: new Date().toISOString(),
+        results_json: { pages: [], totalPages: 5, completedPages: 0 }
+      })
+      .select()
+      .single()
 
-    // Start research in background
-    const orchestrator = new ResearchOrchestrator(process.env.ANTHROPIC_API_KEY!)
-    
-    // Don't await - let it run in background
-    // Note: On Vercel Hobby, this will timeout after 60 seconds
-    // Upgrade to Pro for 5-minute timeout
-    orchestrator.researchCity(cityId).catch(err => {
-      console.error('💥 Background research error:', err)
-    })
+    if (jobError) {
+      return NextResponse.json({ error: 'Failed to create job' }, { status: 500 })
+    }
 
     return NextResponse.json({
       success: true,
-      message: `Research started for ${city.city}, ${city.state_code}`,
+      message: `Research initialized for ${city.city}`,
       cityId,
-      warning: 'Note: Functions on Vercel Hobby timeout after 60 seconds. Upgrade to Pro for longer research tasks.'
+      jobId: job.id,
+      totalPages: 5,
+      neighborhoods: ['Downtown', 'Northside', 'Westside', 'Eastside']
     })
 
   } catch (error: any) {
     console.error('💥 Research API error:', error)
-    return NextResponse.json(
-      { error: error.message || 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
