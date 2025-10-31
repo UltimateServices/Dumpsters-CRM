@@ -82,7 +82,7 @@ export default function Dashboard() {
     if (!city) return
 
     const neighborhoodCount = getNeighborhoodCount(city.city)
-    const confirmMessage = `Research ${city.city}, ${city.state_code}?\n\nThis will generate ${neighborhoodCount} pages with ~15,000-20,000 words of content.\n\nEstimated time: 8-10 minutes\nCost: ~$0.50 in API calls`
+    const confirmMessage = 'Research ' + city.city + ', ' + city.state_code + '?\n\nThis will generate ' + neighborhoodCount + ' pages with ~15,000-20,000 words of content.\n\nEstimated time: 8-10 minutes\nCost: ~$0.50 in API calls'
     
     if (!confirm(confirmMessage)) return
 
@@ -101,12 +101,12 @@ export default function Dashboard() {
         throw new Error(data.error || 'Failed to start research')
       }
 
-      alert(`Research started for ${city.city}!\n\nGenerating content in the background. This will take 8-10 minutes.`)
+      alert('Research started for ' + city.city + '!\n\nGenerating content in the background. This will take 8-10 minutes.')
       
       await fetchResearchJobs()
     } catch (error: any) {
       console.error('Research error:', error)
-      alert(`Error: ${error.message}`)
+      alert('Error: ' + error.message)
     } finally {
       setResearchingCities(prev => {
         const newSet = new Set(prev)
@@ -130,7 +130,7 @@ export default function Dashboard() {
     const pageCount = job.results_json?.generatedContent?.neighborhoodPages?.length || 0
     const totalPages = pageCount + 1
 
-    const confirmMessage = `Publish ${city.city}, ${city.state_code} to WordPress?\n\nThis will create ${totalPages} pages on your site.`
+    const confirmMessage = 'Publish ' + city.city + ', ' + city.state_code + ' to WordPress?\n\nThis will create ' + totalPages + ' pages on your site.'
     
     if (!confirm(confirmMessage)) return
 
@@ -154,12 +154,12 @@ export default function Dashboard() {
         return
       }
 
-      alert(`✅ Successfully published ${data.pages.length} pages!\n\nMain URL:\n${data.mainUrl}\n\nAll pages are live on your site.`)
+      alert('Successfully published ' + data.pages.length + ' pages!\n\nMain URL:\n' + data.mainUrl + '\n\nAll pages are live on your site.')
       
       await fetchCities()
     } catch (error: any) {
       console.error('Publishing error:', error)
-      alert(`Error: ${error.message}`)
+      alert('Error: ' + error.message)
     } finally {
       setPublishingCities(prev => {
         const newSet = new Set(prev)
@@ -186,7 +186,7 @@ export default function Dashboard() {
     const city = cities.find(c => c.id === cityId)
 
     if (city?.published_at) {
-      return <span className="status-badge published">✓ Published</span>
+      return <span className="status-badge published">Published</span>
     }
 
     if (!job) {
@@ -195,11 +195,11 @@ export default function Dashboard() {
 
     switch (job.status) {
       case 'completed':
-        return <span className="status-badge researched">✓ Researched</span>
+        return <span className="status-badge researched">Researched</span>
       case 'processing':
-        return <span className="status-badge processing">⏳ Processing...</span>
+        return <span className="status-badge processing">Processing</span>
       case 'failed':
-        return <span className="status-badge failed">✗ Failed</span>
+        return <span className="status-badge failed">Failed</span>
       default:
         return <span className="status-badge pending">Pending</span>
     }
@@ -485,6 +485,7 @@ export default function Dashboard() {
           transition: all 0.3s;
           text-decoration: none;
           display: inline-block;
+          color: white;
         }
 
         .btn-research {
@@ -566,15 +567,15 @@ export default function Dashboard() {
 
       <div className="dashboard-container">
         <div className="dashboard-header">
-          <h1>🗺️ City Content Manager</h1>
+          <h1>City Content Manager</h1>
           <p>Generate and publish SEO-optimized dumpster rental pages</p>
         </div>
 
         <div className="nav-links">
-          <a href="/bulk" className="nav-link">⚡ Bulk Operations</a>
-          <a href="/import" className="nav-link">📥 Import Cities</a>
-          <a href="/analytics" className="nav-link">📊 Analytics</a>
-          <a href="/settings" className="nav-link">⚙️ Settings</a>
+          <a href="/bulk" className="nav-link">Bulk Operations</a>
+          <a href="/import" className="nav-link">Import Cities</a>
+          <a href="/analytics" className="nav-link">Analytics</a>
+          <a href="/settings" className="nav-link">Settings</a>
         </div>
 
         <div className="stats-grid">
@@ -606,25 +607,25 @@ export default function Dashboard() {
           />
           <div className="filter-buttons">
             <button
-              className={`filter-btn ${statusFilter === 'all' ? 'active' : ''}`}
+              className={'filter-btn' + (statusFilter === 'all' ? ' active' : '')}
               onClick={() => setStatusFilter('all')}
             >
               All
             </button>
             <button
-              className={`filter-btn ${statusFilter === 'not-researched' ? 'active' : ''}`}
+              className={'filter-btn' + (statusFilter === 'not-researched' ? ' active' : '')}
               onClick={() => setStatusFilter('not-researched')}
             >
               Not Researched
             </button>
             <button
-              className={`filter-btn ${statusFilter === 'researched' ? 'active' : ''}`}
+              className={'filter-btn' + (statusFilter === 'researched' ? ' active' : '')}
               onClick={() => setStatusFilter('researched')}
             >
               Researched
             </button>
             <button
-              className={`filter-btn ${statusFilter === 'published' ? 'active' : ''}`}
+              className={'filter-btn' + (statusFilter === 'published' ? ' active' : '')}
               onClick={() => setStatusFilter('published')}
             >
               Published
@@ -646,15 +647,14 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {filteredCities.map(city => {
+              {filteredCities.map((city) => {
                 const job = researchJobs.get(city.id)
                 const pageCount = job?.results_json?.generatedContent?.neighborhoodPages?.length || 0
-                const totalPages = job?.status === 'completed' ? pageCount + 1 : '-'
+                const totalPages = job?.status === 'completed' ? String(pageCount + 1) : '-'
                 const isResearching = researchingCities.has(city.id) || job?.status === 'processing'
                 const isPublishing = publishingCities.has(city.id)
                 const canPublish = job?.status === 'completed' && !isPublishing
                 const canPreview = job?.status === 'completed'
-                const previewUrl = '/preview/' + city.id
 
                 return (
                   <tr key={city.id}>
@@ -671,33 +671,30 @@ export default function Dashboard() {
                           onClick={() => handleResearch(city.id)}
                           disabled={isResearching}
                         >
-                          {isResearching ? '⏳' : '🔬'}
+                          {isResearching ? 'Processing' : 'Research'}
                         </button>
                         <button
                           className="btn btn-publish"
                           onClick={() => handlePublish(city.id)}
                           disabled={!canPublish}
                         >
-                          {isPublishing ? '⏳' : '📤'}
+                          {isPublishing ? 'Publishing' : 'Publish'}
                         </button>
-                        {canPreview && (
-                          
-                            href={previewUrl}
-                            className="btn btn-preview"
-                          >
-                            👁️
+                        {canPreview ? (
+                          <a href={'/preview/' + city.id} className="btn btn-preview">
+                            Preview
                           </a>
-                        )}
-                        {city.wordpress_url && (
+                        ) : null}
+                        {city.wordpress_url ? (
                           
                             href={city.wordpress_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="btn btn-view"
                           >
-                            🌐
+                            View
                           </a>
-                        )}
+                        ) : null}
                       </div>
                     </td>
                   </tr>
